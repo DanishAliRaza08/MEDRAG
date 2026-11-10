@@ -1,0 +1,34 @@
+import json
+
+from medrag.eval.metrics import hallucination_rate, p95, recall_at_k, reciprocal_rank, tfidf_cosine
+from medrag.eval.runner import GOLD_DIR, evaluate_retrieval, run
+
+
+def test_metric_definitions():
+    assert recall_at_k(["a", "b", "c"], {"b", "z"}, 2) == 0.5
+    assert reciprocal_rank(["x", "y", "a"], {"a"}) == 1 / 3 and reciprocal_rank(["x"], {"a"}) == 0
+    assert hallucination_rate([True, False, True, True]) == 0.25 and hallucination_rate([]) == 0
+    assert p95(list(range(101))) == 95
+    assert tfidf_cosine("pleural effusion", "pleural effusion") > 0.99 > tfidf_cosine("pleural effusion", "glaucoma")
+
+
+def test_gold_sets_are_disjoint_from_kb():
+    gold = json.loads((GOLD_DIR / "report_gold.json").read_text())
+    kb = " ".join(p.read_text() for p in (GOLD_DIR.parent / "knowledge_base").glob("*.md"))
+    assert all(case["reference"] not in kb for case in gold)
+
+
+def test_retrieval_eval(pipeline):
+    gold = json.loads((GOLD_DIR / "retrieval_gold.json").read_text())
+    res = evaluate_retrieval(pipeline, gold)
+    assert set(res) == {"dense", "sparse", "hybrid", "hybrid+rerank"}
+    assert res["hybrid+rerank"]["recall@5"] >= 0.8
+
+
+def test_full_eval_run_and_ablation_ordering(tmp_path, settings):
+    res = run(settings, tmp_path)
+    c = res["clinical"]
+    assert c["full"]["hallucination_rate"] < c["no_retrieval"]["hallucination_rate"]
+    assert c["full"]["finding_accuracy"] > c["text_only"]["finding_accuracy"]
+    assert all(g["pass"] for g in res["gates"].values())
+    assert (tmp_path / "results.md").exists() and (tmp_path / "results.json").exists()

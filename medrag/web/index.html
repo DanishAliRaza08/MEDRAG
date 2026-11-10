@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MedRAG - Clinical Workspace</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">✚</span> MedRAG <small>evidence-grounded clinical decision support</small></div>
+  <div id="hdr-right" class="hidden">
+    <span id="mode-badge" class="badge"></span>
+    <nav>
+      <button class="tab active" data-view="workspace">Workspace</button>
+      <button class="tab" data-view="search">Knowledge base</button>
+      <button class="tab admin-only" data-view="audit">Audit log</button>
+    </nav>
+    <span id="who"></span>
+    <button id="logout" class="ghost">Sign out</button>
+  </div>
+</header>
+
+<div class="disclaimer">Decision support only. AI drafts are not diagnoses and must be reviewed and signed off by a credentialed clinician. Demo images are synthetic.</div>
+
+<!-- Login -->
+<section id="login-view" class="card login">
+  <h2>Sign in</h2>
+  <form id="login-form">
+    <label>Username <input name="username" value="clinician" autocomplete="username"></label>
+    <label>Password <input name="password" type="password" value="clinician123" autocomplete="current-password"></label>
+    <button type="submit">Sign in</button>
+    <p class="muted">Demo users: <code>clinician / clinician123</code>, <code>admin / admin123</code>, <code>viewer / viewer123</code></p>
+    <p id="login-error" class="error"></p>
+  </form>
+</section>
+
+<!-- Workspace -->
+<main id="workspace-view" class="hidden grid">
+  <aside class="col">
+    <div class="card">
+      <h3>Patients</h3>
+      <form id="patient-form" class="ingest-only">
+        <input name="patient_id" placeholder="Hospital ID / MRN" required>
+        <div class="row"><input name="age" type="number" min="0" max="130" placeholder="Age"><select name="sex"><option>F</option><option>M</option><option>U</option></select></div>
+        <button type="submit">Register (pseudonymised)</button>
+      </form>
+      <ul id="patients" class="list"></ul>
+    </div>
+    <div class="card ingest-only">
+      <h3>New study <small id="np-label" class="muted"></small></h3>
+      <form id="study-form">
+        <select name="modality">
+          <option value="xray">Chest radiograph</option>
+          <option value="fundus">Retinal fundus</option>
+          <option value="histopathology">Histopathology</option>
+        </select>
+        <input name="file" type="file" accept="image/*,.dcm">
+        <div class="row"><select id="sample-pick"><option value="">…or use a synthetic sample</option></select></div>
+        <textarea name="clinical_note" rows="2" placeholder="Clinical note (identifiers are scrubbed automatically)"></textarea>
+        <button type="submit">Upload &amp; de-identify</button>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Studies</h3>
+      <ul id="studies" class="list"></ul>
+    </div>
+  </aside>
+
+  <section class="col">
+    <div class="card" id="study-card">
+      <h3>Study <span id="study-title" class="muted">- select a study</span></h3>
+      <div class="viewer"><img id="study-img" alt=""></div>
+      <div id="deid-summary" class="muted small"></div>
+      <form id="analyze-form" class="analyze-only">
+        <textarea name="question" rows="2" placeholder="Clinical question, e.g. 'Cough and fever - please review the chest radiograph'"></textarea>
+        <div class="row">
+          <select name="variant" title="Ablation variant">
+            <option value="full">Full agent (hybrid RAG + image + self-verification)</option>
+            <option value="single_pass">Single-pass RAG (no self-verification)</option>
+            <option value="text_only">Text-only (no image reasoning)</option>
+            <option value="no_retrieval">No retrieval (baseline)</option>
+          </select>
+          <button type="submit" id="analyze-btn">Analyse</button>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Assistant</h3>
+      <div id="chat" class="chat"></div>
+      <form id="ask-form" class="row">
+        <input name="question" placeholder="Ask a question - answers cite the knowledge base">
+        <button type="submit">Ask</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="col wide">
+    <div class="card" id="report-card">
+      <div class="report-head">
+        <h3>Draft report <span id="report-id" class="muted"></span></h3>
+        <span id="report-status" class="status"></span>
+      </div>
+      <div id="report-history" class="small"></div>
+      <div id="report-body" class="muted">Run an analysis to generate an evidence-grounded draft.</div>
+      <div id="report-actions" class="hidden">
+        <textarea id="decision-comment" rows="2" placeholder="Comment (required to reject)"></textarea>
+        <div class="row">
+          <button id="signoff-btn" class="ok signoff-only">Sign off</button>
+          <button id="reject-btn" class="danger signoff-only">Reject</button>
+          <button id="pdf-btn" class="ghost">Download PDF</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Knowledge base -->
+<main id="search-view" class="hidden">
+  <div class="card">
+    <h3>Hybrid search</h3>
+    <form id="search-form" class="row">
+      <input name="query" placeholder="Search the knowledge base" required>
+      <select name="strategy"><option>hybrid+rerank</option><option>hybrid</option><option>dense</option><option>sparse</option></select>
+      <select name="modality"><option value="">any modality</option><option>xray</option><option>fundus</option><option>histopathology</option></select>
+      <button type="submit">Search</button>
+    </form>
+    <div id="search-results"></div>
+  </div>
+  <div class="card">
+    <h3>Indexed documents <span id="kb-count" class="muted"></span></h3>
+    <ul id="kb-titles" class="list compact"></ul>
+  </div>
+  <div class="card admin-only">
+    <h3>Add guideline document</h3>
+    <form id="kb-form">
+      <input name="title" placeholder="Title" required>
+      <input name="source" placeholder="Source (e.g. NICE NG138)">
+      <input name="modality" placeholder="Modalities, comma-separated (xray, fundus, histopathology, general)" value="general">
+      <textarea name="text" rows="6" placeholder="Guideline text" required></textarea>
+      <button type="submit">Chunk, embed &amp; index</button>
+    </form>
+  </div>
+</main>
+
+<!-- Audit -->
+<main id="audit-view" class="hidden">
+  <div class="card">
+    <div class="report-head"><h3>Append-only audit log</h3><button id="verify-chain" class="ghost">Verify hash chain</button></div>
+    <div id="chain-status" class="small"></div>
+    <table class="audit"><thead><tr><th>#</th><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead><tbody id="audit-rows"></tbody></table>
+  </div>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

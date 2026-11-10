@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medrag"
+version = "1.0.0"
+description = "Medical agentic multimodal RAG system for evidence-grounded clinical decision support"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.5",
+  "python-multipart>=0.0.9",
+  "numpy>=1.26",
+  "pillow>=10.0",
+  "reportlab>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
+graph = ["langgraph>=0.2"]
+# Real (GPU-served) mode. The VLM / LLM itself is served by vLLM behind an
+# OpenAI-compatible endpoint, so it is not a Python dependency of this package.
+real = [
+  "sentence-transformers>=3.0",
+  "open_clip_torch>=2.24",
+  "torch>=2.2",
+  "qdrant-client>=1.9",
+  "pytesseract>=0.3.10",
+  "pydicom>=2.4",
+]
+
+[project.scripts]
+medrag = "medrag.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["medrag*"]
+
+[tool.setuptools.package-data]
+medrag = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008"]
