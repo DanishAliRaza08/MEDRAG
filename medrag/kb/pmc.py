@@ -123,7 +123,12 @@ def _text(el) -> str:
     s = re.sub(r"\(\s*[,;\s–-]*\)", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     s = re.sub(r"\s*[;,]\s*([.;,])", r"\1", s)  # "cardiomegaly;." left behind by removed citations
-    return re.sub(r"\s+([.,;:])", r"\1", s)
+    s = re.sub(r"\s+([.,;:])", r"\1", s)
+    # superscript citation ranges ("obesity.1,3-5 In") leave ".,–" or ".,," behind once the numbers are gone
+    s = re.sub(r"([.;:!?])(?:[,–—-]|\s[–—-])+(?=\s|$)", r"\1", s)
+    s = re.sub(r"([a-z0-9%)])(?:,[–—-]|[–—-],|,,+)(?=\s)", r"\1", s)
+    s = re.sub(r"(?<=\w)[,–—-]{2,}(?=\s)", ",", s)  # "levels,,–, while" -> "levels, while"
+    return re.sub(r"\s{2,}", " ", s)
 
 
 SKIP_SECTIONS = re.compile(r"(acknowledg|funding|conflict|competing|author contrib|abbreviation|data availab|"

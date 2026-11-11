@@ -38,6 +38,19 @@ def test_jats_parse_keeps_text_after_citations_and_skips_admin_sections():
     assert "[12]" not in a.body and "should not appear" not in a.body and "charity" not in a.body
 
 
+@pytest.mark.parametrize("xml,expected", [
+    (b"<p>Risk factors include obesity.<xref>1</xref>&#8211;<xref>3</xref> In particular, age.</p>",
+     "Risk factors include obesity. In particular, age."),
+    (b"<p>side effects.<xref>4</xref>,<xref>5</xref>, Patients vary.</p>", "side effects. Patients vary."),
+    (b"<p>peptide levels,<xref>7</xref>,<xref>8</xref>&#8211;<xref>9</xref>, while renal</p>", "peptide levels, while renal"),
+    (b"<p>A range of 10&#8211;20 mg, typically.</p>", "A range of 10\u201320 mg, typically."),
+])
+def test_citation_range_leftovers_are_cleaned(xml, expected):
+    from xml.etree import ElementTree as ET
+
+    assert pmc._text(ET.fromstring(xml)) == expected
+
+
 def test_jats_rejects_non_cc_by_licences():
     nc = JATS.replace(b"licenses/by/4.0", b"licenses/by-nc/4.0")
     assert pmc.parse(nc, "1") is None
