@@ -139,3 +139,22 @@ def test_variant_presets():
 def test_ask_returns_cited_answer(pipeline):
     out = MedRAGAgent(pipeline, S).ask("When should a repeat chest radiograph be done after pneumonia?")
     assert out["citations"] and "[" in out["answer"]
+
+
+class BrokenVLM:
+    name = "broken"
+
+    def describe(self, *a, **k):
+        raise TimeoutError("model server timed out")
+
+
+class BrokenGenerator(ExtractiveGenerator):
+    def draft(self, *a, **k):
+        raise ConnectionError("LLM endpoint unavailable")
+
+
+@pytest.mark.parametrize("kw", [{"vlm": BrokenVLM()}, {"generator": BrokenGenerator()}])
+def test_model_failure_degrades_to_needs_review_never_verified(pipeline, kw):
+    st = MedRAGAgent(pipeline, S, **kw).run("review", modality="xray", image_png=png())
+    assert st.status == "needs_review" and st.errors
+    assert "error" in nodes(st) and nodes(st)[-1] == "end"

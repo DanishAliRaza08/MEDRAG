@@ -82,7 +82,7 @@ def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
 
 
 def evaluate_real_xray(agent: MedRAGAgent, data_dir: Path, n: int = 20, variants=VARIANTS, similarity=None,
-                       log=print) -> dict:
+                       log=print, checkpoint: Path | None = None) -> dict:
     """Clinical evaluation on real IU X-ray studies with radiologist reports (see medrag/datasets.py).
 
     Clinical efficacy = finding labels extracted from the generated report vs. labels from the radiologist's report
@@ -93,15 +93,33 @@ def evaluate_real_xray(agent: MedRAGAgent, data_dir: Path, n: int = 20, variants
 
     similarity = similarity or tfidf_cosine
     cases = load_cases(data_dir, n)
-    out = {}
+    # Checkpointing: long CPU/GPU runs can be interrupted, so every finished variant is saved and skipped on re-run
+    # (only if it was produced with the same cases and the same models).
+    key = {"cases": [c["id"] for c in cases], "vlm": agent.vlm.name, "generator": agent.generator.name,
+           "verifier": type(agent.verifier).__name__}
+    out: dict = {}
+    if checkpoint and checkpoint.exists():
+        saved = json.loads(checkpoint.read_text())
+        if saved.get("key") == key:
+            out = saved["results"]
+            log(f"  resuming: variants already done: {list(out)}")
     for variant in variants:
-        tp = fp = fn = 0
+        if variant in out:
+            continue
+        tp = fp = fn = errors = 0
         normal_ok, rates, sims, lat, iters = [], [], [], [], []
         per_case = []
         for i, case in enumerate(cases, start=1):
             t = time.perf_counter()
-            st = agent.run("Please review this chest radiograph and report the findings.", modality="xray",
-                           image_png=image_bytes(data_dir, case), config=AgentConfig.variant(variant))
+            try:
+                st = agent.run("Please review this chest radiograph and report the findings.", modality="xray",
+                               image_png=image_bytes(data_dir, case), config=AgentConfig.variant(variant))
+            except Exception as e:  # pragma: no cover - infrastructure failure outside the agent
+                errors += 1
+                log(f"  [{variant}] {i}/{len(cases)} {case['id']} ERROR {e}")
+                continue
+            if st.errors:
+                errors += 1
             lat.append((time.perf_counter() - t) * 1000)
             gen_text = _report_text(st)
             pred = label_report(" ".join(c.text for c in st.draft.claims if c.section in ("findings", "impression")))
@@ -117,7 +135,7 @@ def evaluate_real_xray(agent: MedRAGAgent, data_dir: Path, n: int = 20, variants
             iters.append(st.iterations)
             draft = "\n".join(f"[{c.section}] {c.text} " + "".join(f"[{i}]" for i in c.citations)
                               + ("" if c.supported is not False else " (UNSUPPORTED)") for c in st.draft.claims)
-            per_case.append({"id": case["id"], "gold": [k for k, v in gold.items() if v],
+            per_case.append({"id": case["id"], "errors": st.errors, "gold": [k for k, v in gold.items() if v],
                              "pred": [k for k, v in pred.items() if v], "status": st.status,
                              "iterations": st.iterations, "findings": [f.text for f in st.findings][:3],
                              "reference": case["reference"], "draft": draft,
@@ -129,8 +147,12 @@ def evaluate_real_xray(agent: MedRAGAgent, data_dir: Path, n: int = 20, variants
                         "normal_abnormal_accuracy": round(mean(normal_ok), 4),
                         "hallucination_rate": round(mean(rates), 4), "report_similarity": round(mean(sims), 4),
                         "mean_iterations": round(mean(iters), 3), "latency_mean_ms": round(mean(lat), 1),
-                        "latency_p95_ms": round(p95(lat), 1), "cases": len(cases), "per_case": per_case}
-    return out
+                        "latency_p95_ms": round(p95(lat), 1), "cases": len(cases), "errors": errors,
+                        "per_case": per_case}
+        if checkpoint:
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_text(json.dumps({"key": key, "results": out}, indent=1))
+    return {v: out[v] for v in variants if v in out}
 
 
 REVIEW_COLUMNS = ["accuracy_1to5", "grounding_1to5", "clinical_usefulness_1to5", "harmful_error_yes_no", "comments"]
@@ -229,7 +251,9 @@ def run(settings: Settings | None = None, out_dir: Path | None = None, real_xray
                           "vlm": agent.vlm.name, "generator": agent.generator.name,
                           "verifier": type(agent.verifier).__name__}}
     if real_xray is not None and (real_xray / "cases.jsonl").exists():
-        results["real_xray"] = evaluate_real_xray(agent, real_xray, real_n, real_variants, sim)
+        results["real_xray"] = evaluate_real_xray(agent, real_xray, real_n, real_variants, sim,
+                                                  checkpoint=(out_dir or ROOT_DIR / "eval_results")
+                                                  / "real_xray_checkpoint.json")
     gate_set = "pmc" if "pmc" in retrieval else "sample"
     r5 = results["retrieval"][gate_set]["hybrid+rerank"]["recall@5"]
     clinical_full = results["clinical"].get("full") or (results.get("real_xray") or {}).get("full") or {}

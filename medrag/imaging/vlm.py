@@ -66,7 +66,8 @@ class QwenVLM:  # pragma: no cover - requires a served model
 
     def describe(self, image_png: bytes, modality: str, question: str = "") -> list[Finding]:
         prompt = VLM_PROMPT.format(mname=MODALITY_NAMES.get(modality, modality), question=question or "n/a")
-        out = self.client.chat([{"role": "user", "content": [image_part(image_png), {"type": "text", "text": prompt}]}])
+        out = self.client.chat([{"role": "user", "content": [image_part(image_png), {"type": "text", "text": prompt}]}],
+                               max_tokens=400)  # a findings list is short; a large budget only risks timeouts
         try:
             data = extract_json(out)
         except Exception:  # not JSON: keep the free text as a single finding rather than failing the case

@@ -18,7 +18,7 @@ from ..config import Settings, get_settings
 from ..imaging.vlm import OfflineVLM, QwenVLM
 from ..retrieval import RetrievalPipeline
 from .generator import ExtractiveGenerator, LLMGenerator
-from .state import AgentState
+from .state import AgentState, Claim, Draft
 from .verifier import NLIVerifier, Verifier
 
 IMAGE_TERMS = ("image", "x-ray", "xray", "radiograph", "film", "scan", "fundus", "slide", "photo", "findings",
@@ -96,7 +96,12 @@ class MedRAGAgent:
 
     def inspect_image(self, st: AgentState, cfg: AgentConfig) -> str:
         t = time.perf_counter()
-        st.findings = self.vlm.describe(st.image_png, st.modality or "unknown", st.question)
+        try:
+            st.findings = self.vlm.describe(st.image_png, st.modality or "unknown", st.question)
+        except Exception as e:  # model server down / timeout: continue text-only, but never as "verified"
+            st.findings = []
+            st.errors.append(f"vision model failed: {e}")
+            st.log("error", stage="inspect_image", error=str(e)[:200])
         if self.case_index is not None and st.modality:
             st.similar_cases = self.case_index.similar(st.image_png, st.modality, k=3, exclude=st.study_id)
         st.log("inspect_image", model=self.vlm.name, findings=[f.concept for f in st.findings],
@@ -113,7 +118,13 @@ class MedRAGAgent:
 
     def draft(self, st: AgentState, cfg: AgentConfig) -> str:
         st.iterations += 1
-        st.draft = self.generator.draft(st.question, st.evidence, st.findings, st.similar_cases)
+        try:
+            st.draft = self.generator.draft(st.question, st.evidence, st.findings, st.similar_cases)
+        except Exception as e:
+            st.errors.append(f"drafting failed: {e}")
+            st.log("error", stage="draft", error=str(e)[:200])
+            st.draft = Draft([Claim(f.text, "findings", [], f.concept, "image") for f in st.findings],
+                             "Drafting failed; image findings only. Requires clinician review.", "error")
         st.log("draft", iteration=st.iterations, claims=len(st.draft.claims), generator=st.draft.generator)
         return "verify"
 
@@ -121,6 +132,10 @@ class MedRAGAgent:
         v = self.verifier.check(st.draft, st.evidence)
         st.verification = v
         st.log("verify", passed=v.passed, unsupported=v.unsupported, hallucination_rate=v.hallucination_rate)
+        if st.errors:  # a degraded run is never presented as verified
+            st.status = "needs_review"
+            st.log("flag", reason="a model or service failed during this analysis")
+            return "END"
         if v.passed:
             st.status = "verified"
             return "END"

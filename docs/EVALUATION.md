@@ -40,11 +40,37 @@ The self-correction loop (RQ4) is exercised by tests with deliberately hallucina
 paraphrase and fabrication occur. In the same way, the offline gold set (14 synthetic cases, 26 retrieval queries)
 validates the harness and is far too small and easy for research claims.
 
+## Retrieval gold sets
+
+| Set | Corpus | Queries | Labels |
+|---|---|---|---|
+| `retrieval_gold.json` | sample corpus only | 26 | complete (every relevant document listed) |
+| `retrieval_gold_pmc.json` | full corpus incl. PubMed Central | 31 paraphrased questions | developer-annotated; each answer verified to occur in its article; needs clinician validation |
+
+## Real chest X-rays (IU X-ray)
+
+`medrag data iu-xray` downloads the public Indiana University test split and keeps studies with a non-empty
+impression. Duplicate views of the same report are skipped, and every image goes through MedRAG's de-identification.
+Reports are labelled for six findings with a negation-aware, CheXpert-style rule labeller (`medrag/datasets.py`):
+pleural effusion, cardiomegaly, consolidation, pneumothorax, atelectasis and nodule.
+
+The same labeller reads the **findings and impression** of each generated draft. Scores (`medrag eval --real-xray`):
+
+* **Precision / recall / F1** (micro, over the six findings): clinical efficacy of the draft.
+* **Normal/abnormal accuracy**: whether the draft and the radiologist agree that the study is normal.
+* **Ungrounded-claim rate**, **report similarity**, **iterations**, **latency**, and **errors** (cases where a
+  model call failed; the agent then degrades to `needs_review`).
+
+Runs are checkpointed per variant (`real_xray_checkpoint.json`), so an interrupted run resumes where it stopped.
+The run also writes `clinician_review_sheet.csv`: one row per study, with the radiologist's report beside the
+MedRAG draft and blank columns for accuracy, grounding, usefulness, harmful error and comments.
+
 ## For the thesis experiments
 
 1. Replace `data/knowledge_base/` with licensed NICE / WHO / PMC-OA guideline text.
 2. Build the retrieval gold set with a clinically knowledgeable annotator: queries paired with the passages
    that should be retrieved.
-3. Build the report gold set from held-out MIMIC-CXR / OpenI studies with their reference reports. Never ingest
-   those reports into the knowledge base.
-4. Run `MEDRAG_MODE=real medrag eval` on a GPU host, and have clinicians review a sample of the drafts.
+3. Real images: IU X-ray is ready (`medrag data iu-xray`). Add MIMIC-CXR once PhysioNet access is granted. Never
+   ingest reference reports into the knowledge base.
+4. Run on a GPU host: `docker compose --profile gpu up`, then
+   `MEDRAG_MODE=real medrag eval --real-xray var/datasets/iu_xray --n 150`. Give the review sheet to clinicians.

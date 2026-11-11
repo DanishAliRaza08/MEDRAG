@@ -59,6 +59,7 @@ class AgentState:
     iterations: int = 0
     status: str = "pending"  # pending | verified | needs_review | unverified
     trace: list[dict] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)  # model/service failures; any error forces needs_review
 
     def log(self, node: str, **info) -> None:
         self.trace.append({"step": len(self.trace) + 1, "node": node, **info})
@@ -76,4 +77,5 @@ class AgentState:
             "draft": self.draft.to_dict() if self.draft else None,
             "verification": asdict(self.verification) if self.verification else None,
             "trace": self.trace,
+            "errors": self.errors,
         }

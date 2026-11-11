@@ -69,7 +69,7 @@ class Settings:
     llm_url: str = field(default_factory=lambda: _env("MEDRAG_LLM_URL", "http://localhost:8001/v1"))
     llm_model: str = field(default_factory=lambda: _env("MEDRAG_LLM_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct"))
     llm_api_key: str = field(default_factory=lambda: _env("MEDRAG_LLM_API_KEY", "EMPTY"))
-    llm_timeout: float = field(default_factory=lambda: float(_env("MEDRAG_LLM_TIMEOUT", "120")))
+    llm_timeout: float = field(default_factory=lambda: float(_env("MEDRAG_LLM_TIMEOUT", "300")))
 
     # Seed demo users on first start (development only)
     seed_demo: bool = field(default_factory=lambda: _env("MEDRAG_SEED_DEMO", "1") == "1")

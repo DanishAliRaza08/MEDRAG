@@ -32,3 +32,29 @@ def test_full_eval_run_and_ablation_ordering(tmp_path, settings):
     assert c["full"]["finding_accuracy"] > c["text_only"]["finding_accuracy"]
     assert all(g["pass"] for g in res["gates"].values())
     assert (tmp_path / "results.md").exists() and (tmp_path / "results.json").exists()
+
+
+def test_real_xray_eval_checkpoints_and_resumes(tmp_path, pipeline):
+    """A finished variant is saved and not recomputed when the run is restarted."""
+    import json as _json
+
+    from medrag.agent import MedRAGAgent
+    from medrag.datasets import label_report
+    from medrag.eval.runner import evaluate_real_xray
+    from medrag.imaging import synthetic
+
+    data = tmp_path / "data"
+    data.mkdir()
+    cases = []
+    for i, (finding, ref) in enumerate([("effusion", "Left pleural effusion."), ("normal", "Lungs are clear.")]):
+        (data / f"c{i}.png").write_bytes(synthetic.to_png_bytes(synthetic.chest_xray(finding, seed=i)))
+        cases.append({"id": f"c{i}", "image": f"c{i}.png", "reference": ref, "labels": label_report(ref)})
+    (data / "cases.jsonl").write_text("\n".join(_json.dumps(c) for c in cases))
+    agent = MedRAGAgent(pipeline)
+    ck = tmp_path / "ck.json"
+    first = evaluate_real_xray(agent, data, 2, ("full",), checkpoint=ck, log=lambda *a: None)
+    assert first["full"]["cases"] == 2 and first["full"]["recall"] == 1.0  # effusion found, normal kept normal
+    calls = []
+    agent.run = lambda *a, **k: calls.append(1)  # would crash if the finished variant were recomputed
+    again = evaluate_real_xray(agent, data, 2, ("full",), checkpoint=ck, log=lambda *a: None)
+    assert again == first and calls == []
