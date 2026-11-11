@@ -75,6 +75,10 @@ def evaluate_clinical(agent: MedRAGAgent, cases: list[dict], similarity=None) ->
     return out
 
 
+def verifier_id(agent: MedRAGAgent) -> str:
+    return f"{type(agent.verifier).__name__}/v{getattr(agent.verifier, 'RULES_VERSION', 1)}"
+
+
 def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
     p = tp / (tp + fp) if tp + fp else 0.0
     r = tp / (tp + fn) if tp + fn else 0.0
@@ -96,7 +100,7 @@ def evaluate_real_xray(agent: MedRAGAgent, data_dir: Path, n: int = 20, variants
     # Checkpointing: long CPU/GPU runs can be interrupted, so every finished variant is saved and skipped on re-run
     # (only if it was produced with the same cases and the same models).
     key = {"cases": [c["id"] for c in cases], "vlm": agent.vlm.name, "generator": agent.generator.name,
-           "verifier": type(agent.verifier).__name__}
+           "verifier": verifier_id(agent)}
     out: dict = {}
     if checkpoint and checkpoint.exists():
         saved = json.loads(checkpoint.read_text())
@@ -249,7 +253,7 @@ def run(settings: Settings | None = None, out_dir: Path | None = None, real_xray
                "models": {"embedder": s.embed_model if not s.offline else "hashing (offline)",
                           "reranker": s.rerank_model if not s.offline else "lexical (offline)",
                           "vlm": agent.vlm.name, "generator": agent.generator.name,
-                          "verifier": type(agent.verifier).__name__}}
+                          "verifier": verifier_id(agent)}}
     if real_xray is not None and (real_xray / "cases.jsonl").exists():
         results["real_xray"] = evaluate_real_xray(agent, real_xray, real_n, real_variants, sim,
                                                   checkpoint=(out_dir or ROOT_DIR / "eval_results")

@@ -1,6 +1,9 @@
 """The critic: checks every claim in a draft against the retrieved evidence.
 
 * Image-finding claims are grounded in the image itself (source = "image").
+* Every other claim must be grounded in the sources the synopsis allows: the cited evidence passages AND the image
+  findings of this study. A statement such as "the radiograph shows cardiomegaly" can only ever be supported by
+  the image findings (no guideline describes this patient), so the findings are always available as premises.
 * ``Verifier`` (lexical): every other claim must cite at least one retrieved passage and share at least
   ``threshold`` of its content terms with a cited passage. Deterministic and dependency-free.
 * ``NLIVerifier`` (semantic): a natural-language-inference cross-encoder decides whether the cited passage
@@ -16,18 +19,22 @@ from .state import Claim, Draft, Verification
 
 
 class Verifier:
+    # bump when the grounding rules change, so stored evaluation checkpoints are not reused across rule changes
+    RULES_VERSION = 2  # v2: image findings are premises (synopsis: evidence AND image findings)
+
     def __init__(self, threshold: float = 0.5):
         self.threshold = threshold
 
     def check(self, draft: Draft, evidence: list[dict]) -> Verification:
         unsupported, supported = [], 0
         missing: list[str] = []
+        findings = [c.text for c in draft.claims if c.source == "image" and c.text.strip()]
         for c in draft.claims:
             if c.source == "image":
                 c.supported, c.support_score = True, 1.0
                 supported += 1
                 continue
-            c.supported, score = self.judge(c, evidence)
+            c.supported, score = self.judge(c, evidence, findings)
             c.support_score = round(score, 3)
             if c.supported:
                 supported += 1
@@ -39,8 +46,12 @@ class Verifier:
         rate = len(unsupported) / total if total else 0.0
         return Verification(supported, len(unsupported), unsupported, round(rate, 4), not unsupported, missing)
 
-    def judge(self, claim: Claim, evidence: list[dict]) -> tuple[bool, float]:
+    def judge(self, claim: Claim, evidence: list[dict], findings: list[str] | None = None) -> tuple[bool, float]:
+        from ..textutils import overlap_ratio
+
         score = claim_support(claim, evidence)
+        if findings:  # restating / building on this study's image findings
+            score = max(score, overlap_ratio(claim.text, " ".join(findings)))
         return score >= self.threshold, score
 
     @staticmethod
@@ -105,13 +116,19 @@ class NLIVerifier(Verifier):
         probs = e / e.sum(axis=1, keepdims=True)
         return [(float(r[self._labels["entailment"]]), float(r[self._labels["contradiction"]])) for r in probs]
 
-    def judge(self, claim: Claim, evidence: list[dict]) -> tuple[bool, float]:
-        if not claim.citations:
-            return False, 0.0
-        premises = []
+    def judge(self, claim: Claim, evidence: list[dict], findings: list[str] | None = None) -> tuple[bool, float]:
+        from ..textutils import split_sentences
+
+        cited = []
         for i in claim.citations:
             if 0 < i <= len(evidence):
-                premises += self._windows(evidence[i - 1]["text"])
+                cited += self._windows(evidence[i - 1]["text"])
+        findings = list(findings or [])
+        # premises: cited passages, the image findings, and each finding joined with each cited sentence (a claim may
+        # combine both: "the radiograph shows X [image], which suggests Y [evidence]")
+        single = [s for i in claim.citations if 0 < i <= len(evidence)
+                  for s in split_sentences(evidence[i - 1]["text"])]
+        premises = cited + findings + [f"{f} {s}" for f in findings for s in single]
         if not premises:
             return False, 0.0
         from ..textutils import overlap_ratio

@@ -110,7 +110,8 @@ class StubNLI(NLIVerifier):
         for p in premises:
             if " not " in hypothesis and hypothesis.replace(" not", "") in p:
                 out.append((0.01, 0.97))
-            elif hypothesis.rstrip(".") in p or "ultrasound" in hypothesis.lower() and "ultrasound" in p.lower():
+            elif (hypothesis.rstrip(".") in p or "ultrasound" in hypothesis.lower() and "ultrasound" in p.lower()
+                  or "cardiac silhouette" in hypothesis and "cardiac silhouette" in p):
                 out.append((0.93, 0.01))
             else:
                 out.append((0.05, 0.20))
@@ -136,3 +137,17 @@ def test_nli_premises_are_single_sentences_and_pairs():
     w = NLIVerifier._windows(text)
     assert len(w) == 7 + 6  # each sentence alone, then each adjacent pair
     assert w[0] == "Sentence number 0 is here." and w[7] == "Sentence number 0 is here. Sentence number 1 is here."
+
+
+def test_image_findings_ground_claims_about_this_study():
+    """Synopsis: claims are constrained to the retrieved evidence AND the image findings."""
+    from medrag.agent.verifier import Verifier
+
+    ev = [{"text": "Echocardiography should be arranged when cardiomegaly is found."}]
+    image = Claim("Enlarged cardiac silhouette consistent with cardiomegaly.", "findings", source="image")
+    restated = Claim("The radiograph shows an enlarged cardiac silhouette, consistent with cardiomegaly.", "impression")
+    invented = Claim("There is a large right pleural effusion.", "impression")
+    for verifier in (Verifier(), StubNLI()):
+        res = verifier.check(Draft([image, restated, invented]), ev)
+        assert restated.supported is True, type(verifier).__name__
+        assert invented.supported is False and res.unsupported == 1
