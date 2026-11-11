@@ -46,6 +46,8 @@ class Settings:
     top_k: int = field(default_factory=lambda: int(_env("MEDRAG_TOP_K", "5")))
     candidate_k: int = field(default_factory=lambda: int(_env("MEDRAG_CANDIDATE_K", "20")))
     rrf_k: int = field(default_factory=lambda: int(_env("MEDRAG_RRF_K", "60")))
+    # how many fused candidates the cross-encoder re-scores (cost grows linearly; 10 is a good CPU setting)
+    rerank_k: int = field(default_factory=lambda: int(_env("MEDRAG_RERANK_K", "20")))
     vector_backend: str = field(default_factory=lambda: _env("MEDRAG_VECTOR_BACKEND", "memory"))
     qdrant_url: str = field(default_factory=lambda: _env("MEDRAG_QDRANT_URL", "http://localhost:6333"))
 

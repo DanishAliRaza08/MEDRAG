@@ -9,11 +9,9 @@ reaches the database, the object store or the vector index.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from dataclasses import asdict
-from pathlib import Path
 
 from .agent import AgentConfig, MedRAGAgent
 from .config import Settings, get_settings
@@ -23,6 +21,7 @@ from .reports.document import render_report_pdf
 from .reports.lifecycle import Actor, ReportStatus, SignOffError, transition
 from .retrieval import RetrievalPipeline
 from .retrieval.chunking import Document, doc_id_for
+from .retrieval.pipeline import kb_fingerprint, load_or_build
 from .storage import Database, ObjectStore
 
 log = logging.getLogger("medrag")
@@ -53,24 +52,11 @@ class MedRAGService:
 
     # -------------------------------------------------------------- bootstrap
     def _kb_fingerprint(self) -> str:
-        h = hashlib.sha256(f"{self.s.mode}|{self.s.chunk_tokens}|{self.s.chunk_overlap}".encode())
-        for d in (*self.s.kb_dirs, self.uploads_dir):
-            for p in sorted(Path(d).glob("*.md")):
-                h.update(p.name.encode() + p.read_bytes())
-        return h.hexdigest()
+        return kb_fingerprint(self.s, (self.uploads_dir,))
 
     def _load_or_build_index(self) -> RetrievalPipeline:
         """Reuse the persisted index only if the knowledge-base sources are unchanged."""
-        fp, fp_file = self._kb_fingerprint(), self.s.index_dir / "kb_fingerprint"
-        pipeline = RetrievalPipeline(self.s)
-        if fp_file.exists() and fp_file.read_text() == fp and pipeline.load():
-            return pipeline
-        pipeline = RetrievalPipeline(self.s)
-        n = sum(pipeline.ingest_directory(d) for d in (*self.s.kb_dirs, self.uploads_dir) if Path(d).exists())
-        pipeline.save()
-        fp_file.write_text(fp)
-        log.info("indexed %d chunks from %s", n, [str(d) for d in (*self.s.kb_dirs, self.uploads_dir)])
-        return pipeline
+        return load_or_build(self.s, (self.uploads_dir,), log=log.info)
 
     def seed_users(self) -> None:
         for u, p, r, n in [("clinician", "clinician123", "clinician", "Dr. Demo Clinician"),

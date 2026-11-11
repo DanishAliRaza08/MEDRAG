@@ -41,8 +41,9 @@ def cmd_eval(a):
 
     real = Path(a.real_xray) if a.real_xray else None
     variants = tuple(a.variants.split(",")) if a.variants else None
-    res = run(out_dir=Path(a.out) if a.out else None, real_xray=real, real_n=a.n,
-              **({"real_variants": variants} if variants else {}))
+    res = run(out_dir=Path(a.out) if a.out else None, real_xray=real, real_n=a.n, synthetic=not a.skip_synthetic,
+              **({"real_variants": variants} if variants else {}),
+              **({"retrieval_strategies": tuple(a.strategies.split(","))} if a.strategies else {}))
     print(to_markdown(res))
     if a.strict and not all(g["pass"] for g in res["gates"].values()):
         print("Release gate FAILED", file=sys.stderr)
@@ -138,6 +139,8 @@ def main(argv=None):
     p.add_argument("--real-xray", help="folder prepared by 'medrag data iu-xray' to also evaluate on real X-rays")
     p.add_argument("--n", type=int, default=20, help="number of real studies to evaluate")
     p.add_argument("--variants", help="comma-separated subset of: full,single_pass,text_only,no_retrieval")
+    p.add_argument("--strategies", help="comma-separated subset of: dense,sparse,hybrid,hybrid+rerank")
+    p.add_argument("--skip-synthetic", action="store_true", help="skip the synthetic-image section (slow in real mode)")
     p.set_defaults(fn=cmd_eval)
     p = sub.add_parser("kb", help="build the knowledge base")
     kb = p.add_subparsers(dest="kb_cmd", required=True)

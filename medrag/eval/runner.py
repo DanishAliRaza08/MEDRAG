@@ -17,7 +17,7 @@ from ..agent import AgentConfig, MedRAGAgent
 from ..config import ROOT_DIR, Settings, get_settings
 from ..imaging import synthetic
 from ..retrieval import RetrievalPipeline
-from ..retrieval.pipeline import STRATEGIES
+from ..retrieval.pipeline import STRATEGIES, load_or_build
 from .metrics import SemanticSimilarity, hallucination_rate, mean, p95, recall_at_k, reciprocal_rank, tfidf_cosine
 
 GOLD_DIR = ROOT_DIR / "data" / "gold"
@@ -27,9 +27,9 @@ VARIANTS = ("full", "single_pass", "text_only", "no_retrieval")
 THRESHOLDS = {"retrieval_recall_at_5_min": 0.80, "full_hallucination_rate_max": 0.10}
 
 
-def evaluate_retrieval(pipeline: RetrievalPipeline, gold: list[dict], ks=(1, 3, 5)) -> dict:
+def evaluate_retrieval(pipeline: RetrievalPipeline, gold: list[dict], ks=(1, 3, 5), strategies=STRATEGIES) -> dict:
     out = {}
-    for strategy in STRATEGIES:
+    for strategy in strategies:
         recalls = {k: [] for k in ks}
         rrs, lat = [], []
         for item in gold:
@@ -169,14 +169,19 @@ def to_markdown(results: dict) -> str:
             lines.append(f"| {k} | {v['recall@1']:.3f} | {v['recall@3']:.3f} | {v['recall@5']:.3f} | {v['mrr']:.3f} | "
                          f"{v['latency_mean_ms']:.2f} | {v['latency_p95_ms']:.2f} |")
         lines.append("")
-    lines += ["", "## Clinical drafting (ablations)", "",
-              "| Variant | Ungrounded-claim rate | Report similarity | Finding accuracy | Verified | Iterations "
-              "| Mean ms |",
-              "|---|---|---|---|---|---|---|"]
-    for k, v in results["clinical"].items():
-        lines.append(f"| {k} | {v['hallucination_rate']:.3f} | {v['report_similarity']:.3f} | "
-                     f"{v['finding_accuracy']:.3f} | {v['verified_rate']:.3f} | {v['mean_iterations']:.2f} | "
-                     f"{v['latency_mean_ms']:.1f} |")
+    if results.get("models"):
+        m = results["models"]
+        lines += ["", f"Models: embedder `{m['embedder']}`, re-ranker `{m['reranker']}`, VLM `{m['vlm']}`, generator "
+                      f"`{m['generator']}`, verifier `{m['verifier']}`."]
+    if results.get("clinical"):
+        lines += ["", "## Clinical drafting (ablations)", "",
+                  "| Variant | Ungrounded-claim rate | Report similarity | Finding accuracy | Verified | Iterations "
+                  "| Mean ms |",
+                  "|---|---|---|---|---|---|---|"]
+        for k, v in results["clinical"].items():
+            lines.append(f"| {k} | {v['hallucination_rate']:.3f} | {v['report_similarity']:.3f} | "
+                         f"{v['finding_accuracy']:.3f} | {v['verified_rate']:.3f} | {v['mean_iterations']:.2f} | "
+                         f"{v['latency_mean_ms']:.1f} |")
     if results.get("real_xray"):
         lines += ["", f"## Real chest X-rays: IU X-ray ({results['mode']} mode, "
                       f"{next(iter(results['real_xray'].values()))['cases']} studies with radiologist reports)", "",
@@ -194,10 +199,9 @@ def to_markdown(results: dict) -> str:
 
 
 def run(settings: Settings | None = None, out_dir: Path | None = None, real_xray: Path | None = None,
-        real_n: int = 20, real_variants=VARIANTS) -> dict:
+        real_n: int = 20, real_variants=VARIANTS, synthetic: bool = True, retrieval_strategies=STRATEGIES) -> dict:
     s = settings or get_settings()
-    pipeline = RetrievalPipeline(s)
-    pipeline.ingest_directory()
+    pipeline = load_or_build(s)
     agent = MedRAGAgent(pipeline, s)
     report_gold = json.loads((GOLD_DIR / "report_gold.json").read_text())
     retrieval = {}
@@ -206,23 +210,30 @@ def run(settings: Settings | None = None, out_dir: Path | None = None, real_xray
     sample = RetrievalPipeline(dataclasses.replace(s, kb_dirs=[sample_kb]), embedder=pipeline.embedder,
                                reranker=pipeline.reranker)
     sample.ingest_directory()
-    retrieval["sample"] = evaluate_retrieval(sample, json.loads((GOLD_DIR / "retrieval_gold.json").read_text()))
+    retrieval["sample"] = evaluate_retrieval(sample, json.loads((GOLD_DIR / "retrieval_gold.json").read_text()),
+                                             strategies=retrieval_strategies)
     # (b) the full configured corpus, against the PubMed Central question set
     pmc_gold = GOLD_DIR / "retrieval_gold_pmc.json"
     pmc_docs = {c.doc_id for c in pipeline.chunks.values() if c.doc_id.startswith("pmc-")}
     if pmc_gold.exists() and pmc_docs:
         items = [i for i in json.loads(pmc_gold.read_text())["items"] if set(i["relevant"]) <= pmc_docs]
-        retrieval["pmc"] = evaluate_retrieval(pipeline, items)
+        retrieval["pmc"] = evaluate_retrieval(pipeline, items, strategies=retrieval_strategies)
     sim = None
     if not s.offline:  # pragma: no cover
         sim = SemanticSimilarity(os.environ.get("MEDRAG_SIM_MODEL", "pritamdeka/S-PubMedBert-MS-MARCO"))
-    results = {"mode": s.mode, "retrieval": retrieval, "clinical": evaluate_clinical(agent, report_gold, sim),
-               "corpus": pipeline.stats() | {"titles": None}}
+    results = {"mode": s.mode, "retrieval": retrieval,
+               "clinical": evaluate_clinical(agent, report_gold, sim) if synthetic else {},
+               "corpus": pipeline.stats() | {"titles": None},
+               "models": {"embedder": s.embed_model if not s.offline else "hashing (offline)",
+                          "reranker": s.rerank_model if not s.offline else "lexical (offline)",
+                          "vlm": agent.vlm.name, "generator": agent.generator.name,
+                          "verifier": type(agent.verifier).__name__}}
     if real_xray is not None and (real_xray / "cases.jsonl").exists():
         results["real_xray"] = evaluate_real_xray(agent, real_xray, real_n, real_variants, sim)
     gate_set = "pmc" if "pmc" in retrieval else "sample"
     r5 = results["retrieval"][gate_set]["hybrid+rerank"]["recall@5"]
-    hr = results["clinical"]["full"]["hallucination_rate"]
+    clinical_full = results["clinical"].get("full") or (results.get("real_xray") or {}).get("full") or {}
+    hr = clinical_full.get("hallucination_rate", 0.0)
     results["gates"] = {
         f"retrieval_recall_at_5 ({gate_set} set)": {"value": r5, "threshold": THRESHOLDS["retrieval_recall_at_5_min"],
                                   "pass": r5 >= THRESHOLDS["retrieval_recall_at_5_min"]},

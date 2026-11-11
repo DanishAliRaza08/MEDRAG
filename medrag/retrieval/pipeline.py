@@ -51,6 +51,33 @@ class SearchResult:
 STRATEGIES = ("dense", "sparse", "hybrid", "hybrid+rerank")
 
 
+def kb_fingerprint(settings: Settings, extra_dirs=()) -> str:
+    """Hash of everything that determines the index: mode, chunking and every knowledge-base file."""
+    import hashlib
+
+    s = settings
+    h = hashlib.sha256(f"{s.mode}|{s.embed_model}|{s.chunk_tokens}|{s.chunk_overlap}".encode())
+    for d in (*settings.kb_dirs, *extra_dirs):
+        for p in sorted(Path(d).glob("*.md")):
+            h.update(p.name.encode() + p.read_bytes())
+    return h.hexdigest()
+
+
+def load_or_build(settings: Settings, extra_dirs=(), log=None) -> RetrievalPipeline:
+    """Reuse the persisted index only if the knowledge-base sources are unchanged; otherwise rebuild and save it."""
+    fp, fp_file = kb_fingerprint(settings, extra_dirs), settings.index_dir / "kb_fingerprint"
+    pipeline = RetrievalPipeline(settings)
+    if fp_file.exists() and fp_file.read_text() == fp and pipeline.load():
+        return pipeline
+    pipeline = RetrievalPipeline(settings, embedder=pipeline.embedder, reranker=pipeline.reranker)
+    n = sum(pipeline.ingest_directory(d) for d in (*settings.kb_dirs, *extra_dirs) if Path(d).exists())
+    pipeline.save()
+    fp_file.write_text(fp)
+    if log:
+        log(f"indexed {n} chunks")
+    return pipeline
+
+
 class RetrievalPipeline:
     def __init__(self, settings: Settings | None = None, embedder=None, reranker=None, vector_store=None):
         self.settings = settings or get_settings()
@@ -156,7 +183,7 @@ class RetrievalPipeline:
             timings["fusion_ms"] = (time.perf_counter() - t) * 1000
             if strategy == "hybrid+rerank" and ranked:
                 t = time.perf_counter()
-                cands = [cid for cid, _ in ranked[:n]]
+                cands = [cid for cid, _ in ranked[: max(k, min(n, self.settings.rerank_k))]]
                 scores = self.reranker.score(query, [self.chunks[c].text for c in cands])
                 ranked = sorted(zip(cands, scores, strict=True), key=lambda x: -x[1])
                 timings["rerank_ms"] = (time.perf_counter() - t) * 1000

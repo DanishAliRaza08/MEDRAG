@@ -58,9 +58,11 @@ class Verifier:
 class NLIVerifier(Verifier):
     """Entailment-based critic (cross-encoder/nli-deberta-v3-small by default; loaded on first use).
 
-    The cited passage is split into windows of three sentences (NLI models are trained on short premises); the claim
-    is supported when some window entails it with probability >= ``entail_threshold`` and no window contradicts it
-    with probability >= ``contradict_threshold``.
+    NLI models are trained on short premises: given a claim and its source sentence alone the model says
+    "entailment", but add two unrelated sentences and it says "neutral". So each cited passage is split into single
+    sentences and adjacent sentence pairs. The claim is supported if ANY premise entails it (probability >=
+    ``entail_threshold``). Only when nothing entails it, a premise that is about the same thing (>= 50% term
+    overlap) and contradicts it (>= ``contradict_threshold``) marks it as contradicting its source.
     """
 
     def __init__(self, model_name: str = "cross-encoder/nli-deberta-v3-small", threshold: float = 0.5,
@@ -82,13 +84,15 @@ class NLIVerifier(Verifier):
         return self._model
 
     @staticmethod
-    def _windows(text: str, size: int = 3) -> list[str]:
+    def _windows(text: str, size: int = 2) -> list[str]:
+        """Every sentence, plus every run of up to ``size`` adjacent sentences (for claims that span two)."""
         from ..textutils import split_sentences
 
-        sents = split_sentences(text)
-        if len(sents) <= size:
-            return [text]
-        return [" ".join(sents[i: i + size]) for i in range(0, len(sents) - size + 1)]
+        sents = split_sentences(text) or [text]
+        out = list(sents)
+        for n in range(2, size + 1):
+            out += [" ".join(sents[i: i + n]) for i in range(0, len(sents) - n + 1)]
+        return out
 
     def probabilities(self, premises: list[str], hypothesis: str) -> list[tuple[float, float]]:
         """(entailment, contradiction) probability per premise."""
@@ -110,9 +114,14 @@ class NLIVerifier(Verifier):
                 premises += self._windows(evidence[i - 1]["text"])
         if not premises:
             return False, 0.0
+        from ..textutils import overlap_ratio
+
         scores = self.probabilities(premises, claim.text)
         entail = max(s[0] for s in scores)
-        contra = max(s[1] for s in scores)
-        if contra >= self.contradict_threshold and contra > entail:
-            return False, -contra  # negative score marks an explicit contradiction
-        return entail >= self.entail_threshold, entail
+        if entail >= self.entail_threshold:
+            return True, entail
+        contra = max((s[1] for p, s in zip(premises, scores, strict=True) if overlap_ratio(claim.text, p) >= 0.5),
+                     default=0.0)
+        if contra >= self.contradict_threshold:
+            return False, -contra  # negative score marks an explicit contradiction of the cited source
+        return False, entail

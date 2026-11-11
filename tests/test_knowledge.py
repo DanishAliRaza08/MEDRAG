@@ -118,7 +118,8 @@ def test_nli_verifier_accepts_paraphrase_rejects_contradiction():
     assert res.unsupported == 2 and not res.passed
 
 
-def test_nli_windows_split_long_passages():
+def test_nli_premises_are_single_sentences_and_pairs():
     text = " ".join(f"Sentence number {i} is here." for i in range(7))
-    w = NLIVerifier._windows(text, 3)
-    assert len(w) == 5 and all(len(x.split(". ")) == 3 for x in w)
+    w = NLIVerifier._windows(text)
+    assert len(w) == 7 + 6  # each sentence alone, then each adjacent pair
+    assert w[0] == "Sentence number 0 is here." and w[7] == "Sentence number 0 is here. Sentence number 1 is here."
