@@ -17,8 +17,9 @@ PATTERNS: list[tuple[str, re.Pattern]] = [
     ("IP", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     ("CNIC", re.compile(r"\b\d{5}-\d{7}-\d\b")),
     ("SSN", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
-    ("MRN", re.compile(r"\b(?:MRN|MR\s*No|Medical\s+Record(?:\s+Number)?|Hospital\s+No|Acc(?:ession)?\s*#?|ID)"
-                       r"\s*[:#]?\s*[A-Z0-9-]{4,}\b", re.I)),
+    # the label must be a whole word and the identifier must contain a digit ("identified" is not an ID)
+    ("MRN", re.compile(r"\b(?:MRN|MR\s*No|Medical\s+Record(?:\s+Number)?|Hospital\s+No|Acc(?:ession)?|ID)\b"
+                       r"\s*[:#]?\s*(?=[A-Z0-9-]*\d)[A-Z0-9-]{4,}\b", re.I)),
     ("PHONE", re.compile(r"(?<!\w)(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{3,4})[\s.-]?\d{3}[\s.-]?\d{3,4}\b")),
     ("DATE", re.compile(
         r"\b(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2}|"

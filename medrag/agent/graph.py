@@ -19,7 +19,7 @@ from ..imaging.vlm import OfflineVLM, QwenVLM
 from ..retrieval import RetrievalPipeline
 from .generator import ExtractiveGenerator, LLMGenerator
 from .state import AgentState
-from .verifier import Verifier
+from .verifier import NLIVerifier, Verifier
 
 IMAGE_TERMS = ("image", "x-ray", "xray", "radiograph", "film", "scan", "fundus", "slide", "photo", "findings",
                "show", "see", "visible", "opacity", "lesion")
@@ -58,7 +58,9 @@ class MedRAGAgent:
         self.pipeline = pipeline
         self.vlm = vlm or (OfflineVLM() if self.s.offline else QwenVLM())
         self.generator = generator or (ExtractiveGenerator() if self.s.offline else LLMGenerator())
-        self.verifier = Verifier(self.s.support_threshold)
+        kind = self.s.verifier or ("lexical" if self.s.offline else "nli")
+        self.verifier = (NLIVerifier(self.s.nli_model, self.s.support_threshold) if kind == "nli"
+                         else Verifier(self.s.support_threshold))
         self.case_index = case_index
 
     # ------------------------------------------------------------------ nodes
@@ -101,7 +103,9 @@ class MedRAGAgent:
                similar_cases=len(st.similar_cases), ms=round((time.perf_counter() - t) * 1000, 2))
         if cfg.use_retrieval and st.iterations == 0:
             # Image findings sharpen the evidence search before the first draft.
-            concepts = [f.concept for f in st.findings if not f.concept.startswith("normal")]
+            abnormal = [f.concept for f in st.findings if not f.concept.startswith("normal")]
+            # a normal study still needs evidence about what "normal" means for this modality
+            concepts = abnormal or [f.concept for f in st.findings if f.concept != "unsupported modality"]
             if concepts:
                 st.queries.append(st.question + " " + " ".join(concepts))
                 return "retrieve"

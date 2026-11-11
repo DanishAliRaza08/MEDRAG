@@ -62,7 +62,10 @@ class BGEM3Embedder:  # pragma: no cover - requires model weights
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(self.model_name)
-            self.dim = self._model.get_sentence_embedding_dimension()
+            self._model.max_seq_length = 1024  # chunks are ~500 words; the 8192 default only costs time
+            m = self._model
+            dim_fn = getattr(m, "get_embedding_dimension", None) or m.get_sentence_embedding_dimension
+            self.dim = dim_fn()
         return self._model
 
     def embed(self, texts: list[str]) -> np.ndarray:

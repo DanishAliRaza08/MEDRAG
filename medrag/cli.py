@@ -18,6 +18,14 @@ def cmd_serve(a):
     uvicorn.run(create_app(), host=a.host, port=a.port)
 
 
+def cmd_llm_server(a):
+    import uvicorn
+
+    from .llm_server import create_llm_app
+
+    uvicorn.run(create_llm_app(a.model, max_pixels=a.max_pixels * 28 * 28, threads=a.threads), host=a.host, port=a.port)
+
+
 def cmd_ingest(a):
     from .retrieval import RetrievalPipeline
 
@@ -31,11 +39,33 @@ def cmd_ingest(a):
 def cmd_eval(a):
     from .eval.runner import run, to_markdown
 
-    res = run(out_dir=Path(a.out) if a.out else None)
+    real = Path(a.real_xray) if a.real_xray else None
+    variants = tuple(a.variants.split(",")) if a.variants else None
+    res = run(out_dir=Path(a.out) if a.out else None, real_xray=real, real_n=a.n,
+              **({"real_variants": variants} if variants else {}))
     print(to_markdown(res))
     if a.strict and not all(g["pass"] for g in res["gates"].values()):
         print("Release gate FAILED", file=sys.stderr)
         sys.exit(1)
+
+
+def cmd_kb(a):
+    from .kb import pmc
+    from .kb.importer import import_file
+
+    if a.kb_cmd == "fetch-pmc":
+        out = Path(a.out)
+        m = pmc.build(out, per_topic=a.per_topic) if a.discover else pmc.build_pinned(out)
+        print(f"{len(m)} CC BY articles written to {out} (see ATTRIBUTION.md); restart the server to re-index")
+    elif a.kb_cmd == "import":
+        path = import_file(Path(a.file), Path(a.out), title=a.title, source=a.source, modality=a.modality)
+        print(f"wrote {path}; restart the server (or run 'medrag ingest') to index it")
+
+
+def cmd_data(a):
+    from .datasets import prepare_iu_xray
+
+    prepare_iu_xray(Path(a.out), n=a.n)
 
 
 def cmd_samples(a):
@@ -92,13 +122,41 @@ def main(argv=None):
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.set_defaults(fn=cmd_serve)
+    p = sub.add_parser("llm-server", help="serve a vision-language model with an OpenAI-compatible API (no GPU needed)")
+    p.add_argument("--model", default="Qwen/Qwen2.5-VL-3B-Instruct")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8001)
+    p.add_argument("--max-pixels", type=int, default=256, help="image budget in 28x28 patches (speed vs detail)")
+    p.add_argument("--threads", type=int, default=None)
+    p.set_defaults(fn=cmd_llm_server)
     p = sub.add_parser("ingest", help="(re)build the knowledge-base index")
     p.add_argument("--path")
     p.set_defaults(fn=cmd_ingest)
     p = sub.add_parser("eval", help="run retrieval + clinical evaluation with ablations")
     p.add_argument("--out")
     p.add_argument("--strict", action="store_true", help="exit non-zero if a release gate fails")
+    p.add_argument("--real-xray", help="folder prepared by 'medrag data iu-xray' to also evaluate on real X-rays")
+    p.add_argument("--n", type=int, default=20, help="number of real studies to evaluate")
+    p.add_argument("--variants", help="comma-separated subset of: full,single_pass,text_only,no_retrieval")
     p.set_defaults(fn=cmd_eval)
+    p = sub.add_parser("kb", help="build the knowledge base")
+    kb = p.add_subparsers(dest="kb_cmd", required=True)
+    q = kb.add_parser("fetch-pmc", help="download the curated CC BY PubMed Central articles")
+    q.add_argument("--out", default=str(ROOT_DIR / "data" / "knowledge_base_pmc"))
+    q.add_argument("--discover", action="store_true", help="search per topic instead of using the curated list")
+    q.add_argument("--per-topic", type=int, default=3)
+    q = kb.add_parser("import", help="import a guideline document (PDF, TXT or Markdown)")
+    q.add_argument("file")
+    q.add_argument("--title", required=True)
+    q.add_argument("--source", default="imported document")
+    q.add_argument("--modality", default="general", help="xray, fundus, histopathology or general")
+    q.add_argument("--out", default=str(ROOT_DIR / "data" / "knowledge_base_local"))
+    p.set_defaults(fn=cmd_kb)
+    p = sub.add_parser("data", help="prepare evaluation datasets")
+    p.add_argument("dataset", choices=["iu-xray"])
+    p.add_argument("--out", default=str(ROOT_DIR / "var" / "datasets" / "iu_xray"))
+    p.add_argument("--n", type=int, default=150)
+    p.set_defaults(fn=cmd_data)
     p = sub.add_parser("samples", help="write synthetic sample images (with fake burned-in PHI)")
     p.add_argument("--out", default=str(ROOT_DIR / "data" / "samples"))
     p.set_defaults(fn=cmd_samples)

@@ -83,7 +83,9 @@ def render_report_pdf(report: dict, study: dict, image_png: bytes | None = None)
         story += [Spacer(1, 6), Paragraph(label, ss["Heading3"])]
         for c in items:
             cites = "".join(f"[{i}]" for i in c.get("citations", []))
-            flag = "" if c.get("supported", True) else ' <font color="red">(unsupported)</font>'
+            flag = "" if c.get("supported", True) else (
+                ' <font color="red">(contradicts cited source)</font>' if (c.get("support_score") or 0) < 0
+                else ' <font color="red">(unsupported)</font>')
             src = " <i>(image)</i>" if c.get("source") == "image" else ""
             story.append(Paragraph(f"&bull; {escape(c['text'])} {cites}{src}{flag}", body))
     evidence = content.get("evidence", [])

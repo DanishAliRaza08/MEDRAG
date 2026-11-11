@@ -112,7 +112,7 @@ def test_index_rebuilds_when_kb_changes_and_keeps_uploads(settings, tmp_path):
 
     kb = tmp_path / "kb"
     shutil.copytree(ROOT_DIR / "data" / "knowledge_base", kb)
-    settings.kb_dir = kb
+    settings.kb_dirs = [kb]
     svc = MedRAGService(settings)
     admin = svc.db.get_user("admin")
     up = svc.add_kb_document(admin, "Sarcoid", "Sarcoidosis causes bilateral hilar lymphadenopathy.", "t", ["xray"])

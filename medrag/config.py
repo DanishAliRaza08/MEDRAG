@@ -27,8 +27,14 @@ def _env(name: str, default: str) -> str:
 class Settings:
     mode: str = field(default_factory=lambda: _env("MEDRAG_MODE", "offline"))
     data_dir: Path = field(default_factory=lambda: Path(_env("MEDRAG_DATA_DIR", str(ROOT_DIR / "var"))))
-    kb_dir: Path = field(
-        default_factory=lambda: Path(_env("MEDRAG_KB_DIR", str(ROOT_DIR / "data" / "knowledge_base")))
+    # One or more knowledge-base folders, comma-separated in MEDRAG_KB_DIR.
+    kb_dirs: list[Path] = field(
+        default_factory=lambda: [
+            Path(p.strip()) for p in _env(
+                "MEDRAG_KB_DIR",
+                f"{ROOT_DIR / 'data' / 'knowledge_base'},{ROOT_DIR / 'data' / 'knowledge_base_pmc'}",
+            ).split(",") if p.strip()
+        ]
     )
     secret_key: str = field(default_factory=lambda: _env("MEDRAG_SECRET_KEY", "dev-secret-change-me"))
     patient_salt: str = field(default_factory=lambda: _env("MEDRAG_PATIENT_SALT", "dev-salt-change-me"))
@@ -46,6 +52,9 @@ class Settings:
     # Agent
     max_iterations: int = field(default_factory=lambda: int(_env("MEDRAG_MAX_ITERATIONS", "3")))
     support_threshold: float = field(default_factory=lambda: float(_env("MEDRAG_SUPPORT_THRESHOLD", "0.5")))
+    # lexical (term overlap) | nli (entailment model). Default: lexical offline, nli in real mode.
+    verifier: str = field(default_factory=lambda: _env("MEDRAG_VERIFIER", ""))
+    nli_model: str = field(default_factory=lambda: _env("MEDRAG_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"))
 
     # Models (real mode)
     embed_model: str = field(default_factory=lambda: _env("MEDRAG_EMBED_MODEL", "BAAI/bge-m3"))
@@ -66,6 +75,11 @@ class Settings:
     @property
     def offline(self) -> bool:
         return self.mode != "real"
+
+    @property
+    def kb_dir(self) -> Path:
+        """The first (primary) knowledge-base folder."""
+        return self.kb_dirs[0]
 
     @property
     def db_path(self) -> Path:

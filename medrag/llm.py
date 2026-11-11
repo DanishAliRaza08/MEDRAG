@@ -21,6 +21,7 @@ class LLMError(RuntimeError):
 class ChatClient:
     def __init__(self, settings: Settings | None = None):
         self.s = settings or get_settings()
+        self.served_model = self.s.llm_model  # updated from each response (the server may serve another model)
 
     def chat(self, messages: list[dict], max_tokens: int = 1024, temperature: float = 0.0) -> str:
         body = json.dumps({"model": self.s.llm_model, "messages": messages,
@@ -34,6 +35,7 @@ class ChatClient:
                 data = json.loads(r.read())
         except Exception as e:  # pragma: no cover - network
             raise LLMError(f"LLM endpoint unavailable: {e}") from e
+        self.served_model = data.get("model") or self.served_model
         return data["choices"][0]["message"]["content"]
 
 

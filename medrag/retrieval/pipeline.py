@@ -88,7 +88,10 @@ class RetrievalPipeline:
         return len(new_chunks)
 
     def ingest_directory(self, path: Path | None = None) -> int:
-        return self.add_documents(load_directory(path or self.settings.kb_dir))
+        """Index one folder, or every configured knowledge-base folder when ``path`` is None."""
+        if path is not None:
+            return self.add_documents(load_directory(path))
+        return sum(self.add_documents(load_directory(d)) for d in self.settings.kb_dirs if Path(d).exists())
 
     def stats(self) -> dict:
         docs = {c.doc_id for c in self.chunks.values()}

@@ -50,5 +50,5 @@ class CrossEncoderReranker:  # pragma: no cover - requires model weights
         if self._model is None:
             from sentence_transformers import CrossEncoder
 
-            self._model = CrossEncoder(self.model_name)
+            self._model = CrossEncoder(self.model_name, max_length=512)  # default 8192 is ~70x slower on CPU
         return [float(s) for s in self._model.predict([(query, p) for p in passages])]

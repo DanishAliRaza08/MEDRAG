@@ -54,7 +54,7 @@ class MedRAGService:
     # -------------------------------------------------------------- bootstrap
     def _kb_fingerprint(self) -> str:
         h = hashlib.sha256(f"{self.s.mode}|{self.s.chunk_tokens}|{self.s.chunk_overlap}".encode())
-        for d in (self.s.kb_dir, self.uploads_dir):
+        for d in (*self.s.kb_dirs, self.uploads_dir):
             for p in sorted(Path(d).glob("*.md")):
                 h.update(p.name.encode() + p.read_bytes())
         return h.hexdigest()
@@ -66,10 +66,10 @@ class MedRAGService:
         if fp_file.exists() and fp_file.read_text() == fp and pipeline.load():
             return pipeline
         pipeline = RetrievalPipeline(self.s)
-        n = pipeline.ingest_directory(self.s.kb_dir) + pipeline.ingest_directory(self.uploads_dir)
+        n = sum(pipeline.ingest_directory(d) for d in (*self.s.kb_dirs, self.uploads_dir) if Path(d).exists())
         pipeline.save()
         fp_file.write_text(fp)
-        log.info("indexed %d chunks from %s and %s", n, self.s.kb_dir, self.uploads_dir)
+        log.info("indexed %d chunks from %s", n, [str(d) for d in (*self.s.kb_dirs, self.uploads_dir)])
         return pipeline
 
     def seed_users(self) -> None:
@@ -210,6 +210,19 @@ class MedRAGService:
         return render_report_pdf(rep, st, img)
 
     # --------------------------------------------------------- knowledge base
+    def import_kb_file(self, user: dict, filename: str, data: bytes, title: str, source: str, modality: str) -> dict:
+        from .kb.importer import import_bytes
+        from .retrieval.chunking import parse_markdown
+
+        path = import_bytes(filename, data, self.uploads_dir, title, source, modality)
+        doc = parse_markdown(path.read_text(encoding="utf-8"), path.stem)
+        n = self.pipeline.add_documents([doc])
+        self.pipeline.save()
+        (self.s.index_dir / "kb_fingerprint").write_text(self._kb_fingerprint())
+        self.db.audit(user["username"], "human", "kb_import_file", doc.doc_id,
+                      {"file": filename[:120], "chunks": n, "words": len(doc.text.split())})
+        return {"doc_id": doc.doc_id, "title": doc.title, "chunks": n, "words": len(doc.text.split())}
+
     def add_kb_document(self, user: dict, title: str, text: str, source: str, modality: list[str]) -> dict:
         text, phi = scrub_text(text)
         doc = Document(doc_id_for(title + text), title, text, source, modality or ["general"])

@@ -97,3 +97,41 @@ def test_samples_endpoint(client):
     r = client.get("/api/samples/fundus/glaucoma", headers=h)
     assert r.content.startswith(b"\x89PNG")
     assert client.get("/api/samples/fundus/unicorn", headers=h).status_code == 404
+
+
+def test_admin_imports_pdf_guideline(client):
+    import io
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    for page in range(3):
+        c.drawString(72, 800, "Hospital Respiratory Protocol")  # running header, must be dropped
+        lines = [["Bronchiectasis exacerbations should be treated with fourteen days of",
+                  "antibiotics guided by previous sputum cultures. Contact Dr. Imran Ali on",
+                  "0300-1234567 for advice. Airway clearance physiotherapy is recommended."],
+                 ["Sputum should be sent for culture before antibiotics are started in every",
+                  "exacerbation, and results reviewed at the follow-up appointment."],
+                 ["Long-term macrolide therapy may be considered for frequent exacerbations",
+                  "after specialist review and an electrocardiogram."]][page]
+        for i, line in enumerate(lines):
+            c.drawString(72, 760 - 14 * i, line)
+        c.drawString(72, 40, f"Page {page + 1} of 3")
+        c.showPage()
+    c.save()
+    ha, hc = login(client, "admin"), login(client)
+    form = {"title": "Bronchiectasis protocol", "source": "local hospital, internal use", "modality": "xray"}
+    files = {"file": ("protocol.pdf", buf.getvalue(), "application/pdf")}
+    assert client.post("/api/kb/upload", data=form, files=files, headers=hc).status_code == 403
+    r = client.post("/api/kb/upload", data=form, files=files, headers=ha)
+    assert r.status_code == 200, r.text
+    q = {"query": "bronchiectasis exacerbation antibiotics"}
+    hit = client.post("/api/search", json=q, headers=hc).json()["hits"][0]
+    assert hit["doc_id"] == r.json()["doc_id"]
+    assert "0300" not in hit["text"] and "Hospital Respiratory Protocol" not in hit["text"]
+    assert "fourteen days of antibiotics" in hit["text"]  # wrapped lines re-joined
+    bad = client.post("/api/kb/upload", data=form, files={"file": ("x.exe", b"MZ", "application/octet-stream")},
+                      headers=ha)
+    assert bad.status_code == 400

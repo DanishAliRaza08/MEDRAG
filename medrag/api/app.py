@@ -221,6 +221,14 @@ def create_app(settings: Settings | None = None, service: MedRAGService | None =
         return Response(synthetic.to_png_bytes(img, PatientName="John Doe", PatientID="00123456"),
                         media_type="image/png")
 
+    @app.post("/api/kb/upload")
+    async def kb_upload(file: UploadFile = File(...), title: str = Form(...), source: str = Form("uploaded document"),
+                        modality: str = Form("general"), user: dict = Depends(require("kb_write"))):
+        data = await file.read()
+        if len(data) > MAX_UPLOAD:
+            raise HTTPException(413, "file too large")
+        return nf(svc.import_kb_file, user, file.filename or "upload.txt", data, title, source, modality)
+
     # ----------------------------------------------------------------- audit
     @app.get("/api/audit")
     def audit(limit: int = 200, entity: str | None = None, user: dict = Depends(require("audit"))):

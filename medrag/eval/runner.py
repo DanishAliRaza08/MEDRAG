@@ -7,6 +7,7 @@ gold data (see docs/EVALUATION.md).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import time
@@ -74,15 +75,100 @@ def evaluate_clinical(agent: MedRAGAgent, cases: list[dict], similarity=None) ->
     return out
 
 
+def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
+    p = tp / (tp + fp) if tp + fp else 0.0
+    r = tp / (tp + fn) if tp + fn else 0.0
+    return p, r, (2 * p * r / (p + r) if p + r else 0.0)
+
+
+def evaluate_real_xray(agent: MedRAGAgent, data_dir: Path, n: int = 20, variants=VARIANTS, similarity=None,
+                       log=print) -> dict:
+    """Clinical evaluation on real IU X-ray studies with radiologist reports (see medrag/datasets.py).
+
+    Clinical efficacy = finding labels extracted from the generated report vs. labels from the radiologist's report
+    (same rule-based labeller for both), reported as micro precision / recall / F1 over abnormal findings plus
+    accuracy on the normal-vs-abnormal decision.
+    """
+    from ..datasets import CONCEPTS, image_bytes, is_normal, label_report, load_cases
+
+    similarity = similarity or tfidf_cosine
+    cases = load_cases(data_dir, n)
+    out = {}
+    for variant in variants:
+        tp = fp = fn = 0
+        normal_ok, rates, sims, lat, iters = [], [], [], [], []
+        per_case = []
+        for i, case in enumerate(cases, start=1):
+            t = time.perf_counter()
+            st = agent.run("Please review this chest radiograph and report the findings.", modality="xray",
+                           image_png=image_bytes(data_dir, case), config=AgentConfig.variant(variant))
+            lat.append((time.perf_counter() - t) * 1000)
+            gen_text = _report_text(st)
+            pred = label_report(" ".join(c.text for c in st.draft.claims if c.section in ("findings", "impression")))
+            gold = case["labels"]
+            for c in CONCEPTS:
+                tp += int(pred[c] and gold[c])
+                fp += int(pred[c] and not gold[c])
+                fn += int(gold[c] and not pred[c])
+            normal_ok.append(float(is_normal(pred) == is_normal(gold)))
+            flags = [bool(c.supported) for c in st.draft.claims if c.source != "image"]
+            rates.append(hallucination_rate(flags))
+            sims.append(similarity(gen_text, case["reference"]))
+            iters.append(st.iterations)
+            draft = "\n".join(f"[{c.section}] {c.text} " + "".join(f"[{i}]" for i in c.citations)
+                              + ("" if c.supported is not False else " (UNSUPPORTED)") for c in st.draft.claims)
+            per_case.append({"id": case["id"], "gold": [k for k, v in gold.items() if v],
+                             "pred": [k for k, v in pred.items() if v], "status": st.status,
+                             "iterations": st.iterations, "findings": [f.text for f in st.findings][:3],
+                             "reference": case["reference"], "draft": draft,
+                             "sources": sorted({e["title"] for e in st.evidence})})
+            log(f"  [{variant}] {i}/{len(cases)} {case['id']} gold={per_case[-1]['gold']} pred={per_case[-1]['pred']}"
+                f" {lat[-1] / 1000:.0f}s")
+        p, r, f1 = _prf(tp, fp, fn)
+        out[variant] = {"precision": round(p, 4), "recall": round(r, 4), "f1": round(f1, 4),
+                        "normal_abnormal_accuracy": round(mean(normal_ok), 4),
+                        "hallucination_rate": round(mean(rates), 4), "report_similarity": round(mean(sims), 4),
+                        "mean_iterations": round(mean(iters), 3), "latency_mean_ms": round(mean(lat), 1),
+                        "latency_p95_ms": round(p95(lat), 1), "cases": len(cases), "per_case": per_case}
+    return out
+
+
+REVIEW_COLUMNS = ["accuracy_1to5", "grounding_1to5", "clinical_usefulness_1to5", "harmful_error_yes_no", "comments"]
+
+
+def write_review_pack(results: dict, path: Path, variant: str = "full") -> Path | None:
+    """CSV for blinded clinician review of real-data drafts (phase 7 of the plan): rate, then send back."""
+    import csv
+
+    cases = (results.get("real_xray") or {}).get(variant, {}).get("per_case", [])
+    if not cases:
+        return None
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["case_id", "image_file", "radiologist_report", "medrag_draft", "agent_status", "sources",
+                    *REVIEW_COLUMNS])
+        for c in cases:
+            w.writerow([c["id"], f"{c['id']}.png", c["reference"], c["draft"], c["status"], "; ".join(c["sources"]),
+                        *[""] * len(REVIEW_COLUMNS)])
+    return path
+
+
 def to_markdown(results: dict) -> str:
     lines = [f"# MedRAG evaluation ({results['mode']} mode)", "",
              "> Offline-mode figures exercise the harness with deterministic stand-ins and synthetic images; "
              "they are **not** clinical results." if results["mode"] != "real" else "", "",
-             "## Retrieval", "", "| Strategy | Recall@1 | Recall@3 | Recall@5 | MRR | Mean ms | P95 ms |",
-             "|---|---|---|---|---|---|---|"]
-    for k, v in results["retrieval"].items():
-        lines.append(f"| {k} | {v['recall@1']:.3f} | {v['recall@3']:.3f} | {v['recall@5']:.3f} | {v['mrr']:.3f} | "
-                     f"{v['latency_mean_ms']:.2f} | {v['latency_p95_ms']:.2f} |")
+             f"Corpus: {results['corpus']['documents']} documents, {results['corpus']['chunks']} chunks "
+             f"({results['corpus']['embedder']} + {results['corpus']['reranker']}).", ""]
+    names = {"sample": "Retrieval: sample corpus (26 queries, complete labels)",
+             "pmc": "Retrieval: full corpus incl. PubMed Central (31 developer-annotated queries)"}
+    for set_name, table in results["retrieval"].items():
+        lines += [f"## {names.get(set_name, set_name)}", "",
+                  "| Strategy | Recall@1 | Recall@3 | Recall@5 | MRR | Mean ms | P95 ms |",
+                  "|---|---|---|---|---|---|---|"]
+        for k, v in table.items():
+            lines.append(f"| {k} | {v['recall@1']:.3f} | {v['recall@3']:.3f} | {v['recall@5']:.3f} | {v['mrr']:.3f} | "
+                         f"{v['latency_mean_ms']:.2f} | {v['latency_p95_ms']:.2f} |")
+        lines.append("")
     lines += ["", "## Clinical drafting (ablations)", "",
               "| Variant | Ungrounded-claim rate | Report similarity | Finding accuracy | Verified | Iterations "
               "| Mean ms |",
@@ -91,28 +177,54 @@ def to_markdown(results: dict) -> str:
         lines.append(f"| {k} | {v['hallucination_rate']:.3f} | {v['report_similarity']:.3f} | "
                      f"{v['finding_accuracy']:.3f} | {v['verified_rate']:.3f} | {v['mean_iterations']:.2f} | "
                      f"{v['latency_mean_ms']:.1f} |")
+    if results.get("real_xray"):
+        lines += ["", f"## Real chest X-rays: IU X-ray ({results['mode']} mode, "
+                      f"{next(iter(results['real_xray'].values()))['cases']} studies with radiologist reports)", "",
+                  "| Variant | Precision | Recall | F1 | Normal/abnormal acc. | Ungrounded rate | Similarity | "
+                  "Iterations | Mean s |", "|---|---|---|---|---|---|---|---|---|"]
+        for k, v in results["real_xray"].items():
+            lines.append(f"| {k} | {v['precision']:.3f} | {v['recall']:.3f} | {v['f1']:.3f} | "
+                         f"{v['normal_abnormal_accuracy']:.3f} | {v['hallucination_rate']:.3f} | "
+                         f"{v['report_similarity']:.3f} | {v['mean_iterations']:.2f} | "
+                         f"{v['latency_mean_ms'] / 1000:.1f} |")
     lines += ["", "## Release gates", ""]
     for k, v in results["gates"].items():
         lines.append(f"- {k}: **{'PASS' if v['pass'] else 'FAIL'}** (value {v['value']}, threshold {v['threshold']})")
     return "\n".join(lines) + "\n"
 
 
-def run(settings: Settings | None = None, out_dir: Path | None = None) -> dict:
+def run(settings: Settings | None = None, out_dir: Path | None = None, real_xray: Path | None = None,
+        real_n: int = 20, real_variants=VARIANTS) -> dict:
     s = settings or get_settings()
     pipeline = RetrievalPipeline(s)
     pipeline.ingest_directory()
     agent = MedRAGAgent(pipeline, s)
-    retrieval_gold = json.loads((GOLD_DIR / "retrieval_gold.json").read_text())
     report_gold = json.loads((GOLD_DIR / "report_gold.json").read_text())
+    retrieval = {}
+    # (a) controlled set: sample corpus only, so relevance labels are complete
+    sample_kb = ROOT_DIR / "data" / "knowledge_base"
+    sample = RetrievalPipeline(dataclasses.replace(s, kb_dirs=[sample_kb]), embedder=pipeline.embedder,
+                               reranker=pipeline.reranker)
+    sample.ingest_directory()
+    retrieval["sample"] = evaluate_retrieval(sample, json.loads((GOLD_DIR / "retrieval_gold.json").read_text()))
+    # (b) the full configured corpus, against the PubMed Central question set
+    pmc_gold = GOLD_DIR / "retrieval_gold_pmc.json"
+    pmc_docs = {c.doc_id for c in pipeline.chunks.values() if c.doc_id.startswith("pmc-")}
+    if pmc_gold.exists() and pmc_docs:
+        items = [i for i in json.loads(pmc_gold.read_text())["items"] if set(i["relevant"]) <= pmc_docs]
+        retrieval["pmc"] = evaluate_retrieval(pipeline, items)
     sim = None
     if not s.offline:  # pragma: no cover
         sim = SemanticSimilarity(os.environ.get("MEDRAG_SIM_MODEL", "pritamdeka/S-PubMedBert-MS-MARCO"))
-    results = {"mode": s.mode, "retrieval": evaluate_retrieval(pipeline, retrieval_gold),
-               "clinical": evaluate_clinical(agent, report_gold, sim)}
-    r5 = results["retrieval"]["hybrid+rerank"]["recall@5"]
+    results = {"mode": s.mode, "retrieval": retrieval, "clinical": evaluate_clinical(agent, report_gold, sim),
+               "corpus": pipeline.stats() | {"titles": None}}
+    if real_xray is not None and (real_xray / "cases.jsonl").exists():
+        results["real_xray"] = evaluate_real_xray(agent, real_xray, real_n, real_variants, sim)
+    gate_set = "pmc" if "pmc" in retrieval else "sample"
+    r5 = results["retrieval"][gate_set]["hybrid+rerank"]["recall@5"]
     hr = results["clinical"]["full"]["hallucination_rate"]
     results["gates"] = {
-        "retrieval_recall_at_5": {"value": r5, "threshold": THRESHOLDS["retrieval_recall_at_5_min"],
+        f"retrieval_recall_at_5 ({gate_set} set)": {"value": r5, "threshold": THRESHOLDS["retrieval_recall_at_5_min"],
                                   "pass": r5 >= THRESHOLDS["retrieval_recall_at_5_min"]},
         "full_hallucination_rate": {"value": hr, "threshold": THRESHOLDS["full_hallucination_rate_max"],
                                     "pass": hr <= THRESHOLDS["full_hallucination_rate_max"]},
@@ -121,4 +233,5 @@ def run(settings: Settings | None = None, out_dir: Path | None = None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "results.json").write_text(json.dumps(results, indent=2))
     (out_dir / "results.md").write_text(to_markdown(results))
+    write_review_pack(results, out_dir / "clinician_review_sheet.csv")
     return results

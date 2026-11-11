@@ -1,18 +1,21 @@
 import pytest
 
-from medrag.config import Settings
+from medrag.config import ROOT_DIR, Settings
 from medrag.retrieval import RetrievalPipeline
+
+# Unit tests run against the small, stable sample corpus; the PubMed Central corpus has its own tests.
+SAMPLE_KB = [ROOT_DIR / "data" / "knowledge_base"]
 
 
 @pytest.fixture
 def settings(tmp_path):
     return Settings(mode="offline", data_dir=tmp_path / "var", seed_demo=True, secret_key="test-secret",
-                    patient_salt="test-salt")
+                    patient_salt="test-salt", kb_dirs=list(SAMPLE_KB))
 
 
 @pytest.fixture(scope="session")
 def pipeline():
-    p = RetrievalPipeline(Settings(mode="offline"))
+    p = RetrievalPipeline(Settings(mode="offline", kb_dirs=list(SAMPLE_KB)))
     p.ingest_directory()
     return p
 

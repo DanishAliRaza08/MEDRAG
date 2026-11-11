@@ -53,3 +53,32 @@ def overlap_ratio(claim: str, evidence: str) -> float:
         return 1.0
     e = set(content_terms(evidence))
     return len(c & e) / len(c)
+
+
+# NegEx-style cues. Pre-negations scope over the rest of the clause ("without effusion, consolidation or
+# pneumothorax"); post-negations follow the mention ("pneumothorax is not visualized").
+PRE_NEGATIONS = ("no ", "without ", "negative for ", "free of ", "resolution of ", "resolved ", "no evidence of ",
+                 "clear of ", "not ", "absence of ", "absent ", "no definite ", "no visible ", "no focal ", "no large ",
+                 "no acute ", "no significant ", "nor ", "rule out ", "ruled out ")
+POST_NEGATIONS = ("not visualized", "not seen", "not identified", "not present", "has resolved", "have resolved",
+                  "resolved", "no longer", "is absent", "are absent", "ruled out")
+
+
+def clauses(text: str) -> list[str]:
+    text = text.lower().replace("xxxx", " ")
+    return [c.strip() for c in re.split(r"[.;\n]|, but | however | although ", text) if c.strip()]
+
+
+def mention_negated(clause: str, start: int, end: int) -> bool:
+    """Is the mention clause[start:end] negated within its clause?"""
+    before = " " + clause[:start]
+    return any(n in before for n in PRE_NEGATIONS) or any(n in clause[end:] for n in POST_NEGATIONS)
+
+
+def asserts(text: str, phrase: str) -> bool:
+    """True if ``text`` mentions ``phrase`` at least once without negation."""
+    for clause in clauses(text):
+        for m in re.finditer(rf"\b{re.escape(phrase.lower())}\b", clause):
+            if not mention_negated(clause, m.start(), m.end()):
+                return True
+    return False

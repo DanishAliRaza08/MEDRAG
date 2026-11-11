@@ -29,13 +29,11 @@ class ImageDeidResult:
 
 
 def _load(data: bytes) -> tuple[Image.Image, list[str]]:
-    if data[128:132] == b"DICM":  # pragma: no cover - optional pydicom path
-        import pydicom
+    from .dicom import is_dicom, load_dicom
 
-        ds = pydicom.dcmread(io.BytesIO(data))
-        arr = ds.pixel_array.astype(np.float32)
-        arr = (255 * (arr - arr.min()) / max(1.0, float(arr.max() - arr.min()))).astype(np.uint8)
-        return Image.fromarray(arr), ["dicom-header"]
+    if is_dicom(data):
+        img, removed, burned = load_dicom(data)
+        return img, removed + (["dicom:burned-in-annotation-flag"] if burned else [])
     img = Image.open(io.BytesIO(data))
     removed = sorted(k for k in img.info if k not in ("dpi",))
     try:

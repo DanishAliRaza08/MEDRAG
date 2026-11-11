@@ -27,6 +27,11 @@ def test_scrub_text_categories(text, label):
 def test_scrub_keeps_clinical_content():
     out, counts = scrub_text("Cough and fever for 3 days, right lower zone crackles.")
     assert counts == {} and "crackles" in out
+    # regression: words that merely start with "id"/"acc" are not identifiers
+    for text in ("No cardiopulmonary abnormality identified.", "Accompanied by mild atelectasis.",
+                 "Accession of fluid is not seen."):
+        assert scrub_text(text)[1] == {}, text
+    assert "MRN" in scrub_text("Accession 12345678")[1] and "MRN" in scrub_text("ID: AB12345")[1]
     assert not contains_phi("pleural effusion on the left")
 
 
@@ -82,3 +87,69 @@ def test_deid_preserves_diagnostic_content():
 def test_invalid_image_raises():
     with pytest.raises(Exception):  # noqa: B017
         deidentify_image(b"not an image")
+
+
+def _make_dicom(img, photometric="MONOCHROME2", **tags):
+    from pydicom.dataset import FileDataset, FileMetaDataset
+    from pydicom.uid import ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
+
+    arr = np.asarray(img.convert("L"), dtype=np.uint16) * 16  # 12-bit range, like a real radiograph
+    if photometric == "MONOCHROME1":
+        arr = 4095 - arr
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+    meta.MediaStorageSOPInstanceUID = generate_uid()
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    ds = FileDataset(None, {}, file_meta=meta, preamble=b"\0" * 128)
+    ds.SOPClassUID, ds.SOPInstanceUID = SecondaryCaptureImageStorage, meta.MediaStorageSOPInstanceUID
+    ds.StudyInstanceUID = generate_uid()
+    for k, v in tags.items():
+        setattr(ds, k, v)
+    ds.Modality, ds.Rows, ds.Columns = "CR", arr.shape[0], arr.shape[1]
+    ds.SamplesPerPixel, ds.PhotometricInterpretation = 1, photometric
+    ds.BitsAllocated, ds.BitsStored, ds.HighBit, ds.PixelRepresentation = 16, 12, 11, 0
+    ds.PixelData = arr.tobytes()
+    ds.add_new(0x00091001, "LO", "private vendor note: John Doe")
+    buf = io.BytesIO()
+    ds.save_as(buf, enforce_file_format=True)
+    return buf.getvalue()
+
+
+PHI_TAGS = dict(PatientName="Doe^John", PatientID="MRN00123456", PatientBirthDate="19600102",
+                InstitutionName="St Mary Hospital", ReferringPhysicianName="Smith^Anna", AccessionNumber="ACC987654",
+                BurnedInAnnotation="YES")
+
+
+@pytest.mark.parametrize("photometric", ["MONOCHROME2", "MONOCHROME1"])
+def test_dicom_header_and_pixels_deidentified(photometric):
+    pytest.importorskip("pydicom")
+    from medrag.imaging.analysis import analyze
+
+    dcm = _make_dicom(synthetic.chest_xray("effusion", seed=3, burn_text=True), photometric, **PHI_TAGS)
+    res = deidentify_image(dcm, use_ocr=False)
+    for needle in (b"Doe^John", b"MRN00123456", b"19600102", b"St Mary", b"Smith^Anna", b"ACC987654", b"John Doe"):
+        assert needle not in res.png
+    assert {"dicom:PatientName", "dicom:PatientID", "dicom:PatientBirthDate", "dicom:InstitutionName",
+            "dicom:private-tags", "dicom:burned-in-annotation-flag"} <= set(res.metadata_removed)
+    assert res.masked_regions  # burned-in text found in the DICOM pixels
+    # grey levels rendered the right way round (MONOCHROME1 inverted back): strongly positively correlated with the
+    # original radiograph outside the masked text regions
+    out = np.asarray(Image.open(io.BytesIO(res.png)).convert("L"), dtype=np.float32)
+    ref = np.asarray(synthetic.chest_xray("effusion", seed=3).convert("L"), dtype=np.float32)
+    keep = out > 0
+    assert np.corrcoef(out[keep], ref[keep])[0, 1] > 0.98
+    assert "pleural effusion" in [f.concept for f in analyze(Image.open(io.BytesIO(res.png)), "xray")]
+
+
+def test_deidentified_dicom_copy():
+    pytest.importorskip("pydicom")
+    import pydicom
+
+    from medrag.deid.dicom import deidentified_dataset
+
+    dcm = _make_dicom(synthetic.chest_xray(seed=1), **PHI_TAGS)
+    original_uid = pydicom.dcmread(io.BytesIO(dcm)).StudyInstanceUID
+    ds = deidentified_dataset(dcm, "pt_abc")
+    assert ds.PatientName == "pt_abc" and ds.PatientBirthDate == "" and ds.InstitutionName == ""
+    assert ds.StudyInstanceUID != original_uid and ds.PatientIdentityRemoved == "YES"
+    assert not any(el.tag.is_private for el in ds)

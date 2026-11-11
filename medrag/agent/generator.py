@@ -10,6 +10,7 @@ the served model for a JSON report constrained to the numbered evidence.
 from __future__ import annotations
 
 import json
+import re
 from typing import Protocol
 
 from ..imaging.analysis import Finding
@@ -43,11 +44,20 @@ class Generator(Protocol):
     def answer(self, question: str, evidence: list[dict]) -> dict: ...
 
 
+# Review-article "meta" sentences describe the paper, not the medicine; they must never become clinical claims.
+_META = re.compile(r"^(we|our|this (review|article|paper|study|guideline|document)|in this (review|article|paper)|"
+                   r"here,? we|the (aim|purpose|objective) of|the present (review|study)|herein|a recent study|"
+                   # sentences that open with a pronoun depend on context the reader cannot see
+                   r"they|it|these|this|those|such|its|their|he|she)\b", re.I)
+_NOISE = re.compile(r"\b(et al|fig(ure)?\.?\s*\d|table\s*\d|doi|https?://)", re.I)
+
+
 def _sentences(evidence: list[dict]) -> list[tuple[int, str]]:
     out = []
     for i, ev in enumerate(evidence, start=1):
         for s in split_sentences(ev["text"]):
-            if len(s.split()) >= 5:
+            n = len(s.split())
+            if 5 <= n <= 60 and not _META.match(s) and not _NOISE.search(s) and s[-1] in ".!":
                 out.append((i, s))
     return out
 
@@ -167,26 +177,57 @@ class LLMGenerator:  # pragma: no cover - requires a served model
     def __init__(self, client: ChatClient | None = None):
         self.client = client or ChatClient()
 
-    @staticmethod
-    def _ev(evidence):
-        return "\n".join(f"[{i}] ({e['title']}) {e['text']}" for i, e in enumerate(evidence, start=1)) or "(none)"
+    MAX_SENTENCES = 4  # per passage: keeps prompts short (fast on CPU, fewer distractions for small models)
+
+    @classmethod
+    def _ev(cls, evidence, focus: str = ""):
+        """Numbered evidence, each passage compressed to its sentences most relevant to the question/findings.
+
+        Citations still refer to the full passage, and verification checks claims against the full text."""
+        terms = set(content_terms(focus))
+        lines = []
+        for i, e in enumerate(evidence, start=1):
+            sents = split_sentences(e["text"])
+            if terms and len(sents) > cls.MAX_SENTENCES:
+                ranked = sorted(range(len(sents)), key=lambda k: -len(terms & set(content_terms(sents[k]))))
+                sents = [sents[k] for k in sorted(ranked[: cls.MAX_SENTENCES])]
+            lines.append(f"[{i}] ({e['title']}) " + " ".join(sents))
+        return "\n".join(lines) or "(none)"
+
+    def _json_chat(self, prompt: str, max_tokens: int):
+        out = self.client.chat([{"role": "user", "content": prompt}], max_tokens=max_tokens)
+        try:
+            return extract_json(out)
+        except (ValueError, json.JSONDecodeError):
+            fix = self.client.chat([{"role": "user", "content": prompt},
+                                    {"role": "assistant", "content": out},
+                                    {"role": "user", "content": "That was not valid JSON. Reply with only the JSON."}],
+                                   max_tokens=max_tokens)
+            return extract_json(fix)
 
     def draft(self, question, evidence, findings, similar):
         fl = "\n".join(f"- {f.text}" for f in findings) or "- (no image)"
-        out = self.client.chat([{"role": "user", "content": DRAFT_PROMPT.format(
-            question=question, findings=fl, evidence=self._ev(evidence))}], max_tokens=1500)
-        data = extract_json(out)
+        focus = question + " " + " ".join(f.concept + " " + f.text for f in findings)
+        try:
+            data = self._json_chat(DRAFT_PROMPT.format(question=question, findings=fl,
+                                                       evidence=self._ev(evidence, focus)), max_tokens=700)
+        except (ValueError, json.JSONDecodeError):
+            data = {"summary": "The model did not return a structured draft; image findings only.", "claims": []}
         claims = [Claim(f.text, "findings", [], f.concept, "image") for f in findings]
         n = len(evidence)
-        for c in data.get("claims", []):
-            cites = [int(x) for x in c.get("citations", []) if str(x).isdigit() and 1 <= int(x) <= n]
-            claims.append(Claim(c["text"], c.get("section", "impression"), cites, c.get("concept", "")))
-        return Draft(claims, data.get("summary", ""), f"llm:{self.client.s.llm_model}")
+        sections = {"impression", "differential", "recommendations"}
+        for c in data.get("claims", []) if isinstance(data, dict) else []:
+            if not isinstance(c, dict) or not str(c.get("text", "")).strip():
+                continue
+            cites = [int(x) for x in c.get("citations", []) or [] if str(x).isdigit() and 1 <= int(x) <= n]
+            section = c.get("section", "impression") if c.get("section") in sections else "impression"
+            claims.append(Claim(str(c["text"]), section, cites, str(c.get("concept", ""))))
+        return Draft(claims, str(data.get("summary", "")), f"llm:{self.client.served_model}")
 
     def answer(self, question, evidence):
         out = self.client.chat([{"role": "user", "content":
             "Answer the clinical question using ONLY the evidence; cite as [n]. If unsupported, say so.\n\n"
-            f"Question: {question}\n\nEvidence:\n{self._ev(evidence)}\n\n"
+            f"Question: {question}\n\nEvidence:\n{self._ev(evidence, question)}\n\n"
             'Return JSON {"answer": "...", "citations": [n]}'}])
         try:
             return extract_json(out)

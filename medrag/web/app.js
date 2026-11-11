@@ -182,7 +182,8 @@ function renderReport(rep, history) {
       const cls = x.source === "image" ? "img" : x.supported ? "ok" : "bad";
       return `<div class="claim ${cls}">${esc(x.text)} ${x.citations.map(cite).join("")}`
         + (x.source === "image" ? `<span class="tag">image</span>` : "")
-        + (x.supported === false ? `<span class="tag" style="color:#c0392b">unsupported</span>` : "") + `</div>`;
+        + (x.supported === false ? `<span class="tag" style="color:#c0392b">${x.support_score < 0 ? "contradicts source" : "unsupported"}</span>` : "")
+        + `</div>`;
     }).join("") + `</div>`;
   }
   const v = c.verification;
@@ -251,6 +252,14 @@ $("#kb-form").onsubmit = (e) => guard(async () => {
   const f = new FormData(e.target);
   const r = await api("/api/kb/documents", { method: "POST", json: { title: f.get("title"), source: f.get("source") || "uploaded", text: f.get("text"), modality: f.get("modality").split(",").map((s) => s.trim()).filter(Boolean) } });
   e.target.reset(); toast(`Indexed ${r.chunks} chunk(s) as ${r.doc_id}`); loadKB();
+}, e.submitter);
+
+$("#kb-file-form").onsubmit = (e) => guard(async () => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  if (!fd.get("source")) fd.set("source", "uploaded document");
+  const r = await api("/api/kb/upload", { method: "POST", body: fd });
+  e.target.reset(); toast(`Imported ${r.words} words as ${r.chunks} chunk(s) (${r.doc_id})`); loadKB();
 }, e.submitter);
 
 // ------------------------------------------------------------------ audit

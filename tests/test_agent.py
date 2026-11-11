@@ -4,10 +4,10 @@ from medrag.agent import AgentConfig, MedRAGAgent
 from medrag.agent.generator import ExtractiveGenerator, _negated
 from medrag.agent.state import Claim, Draft
 from medrag.agent.verifier import Verifier
-from medrag.config import Settings
+from medrag.config import ROOT_DIR, Settings
 from medrag.imaging import synthetic
 
-S = Settings(mode="offline")
+S = Settings(mode="offline", kb_dirs=[ROOT_DIR / "data" / "knowledge_base"])
 
 
 def png(mod="xray", finding="consolidation", seed=1):

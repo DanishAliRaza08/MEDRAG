@@ -141,6 +141,16 @@
       <button type="submit">Chunk, embed &amp; index</button>
     </form>
   </div>
+  <div class="card admin-only">
+    <h3>Import guideline file (PDF, TXT, Markdown)</h3>
+    <form id="kb-file-form">
+      <input name="file" type="file" accept=".pdf,.txt,.md" required>
+      <input name="title" placeholder="Title (e.g. NICE NG138 Pneumonia in adults)" required>
+      <input name="source" placeholder="Source and licence">
+      <select name="modality"><option>general</option><option>xray</option><option>fundus</option><option>histopathology</option></select>
+      <button type="submit">Import &amp; index</button>
+    </form>
+  </div>
 </main>
 
 <!-- Audit -->

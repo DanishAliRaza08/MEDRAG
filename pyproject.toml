@@ -17,6 +17,8 @@ dependencies = [
   "numpy>=1.26",
   "pillow>=10.0",
   "reportlab>=4.0",
+  "pypdf>=4.0",
+  "pydicom>=2.4",
 ]
 
 [project.optional-dependencies]
@@ -30,8 +32,11 @@ real = [
   "torch>=2.2",
   "qdrant-client>=1.9",
   "pytesseract>=0.3.10",
-  "pydicom>=2.4",
 ]
+# Local OpenAI-compatible model server (medrag llm-server) for running real mode without vLLM / a GPU.
+llm = ["torch>=2.2", "transformers>=4.49", "accelerate>=0.30", "pillow>=10.0"]
+# Evaluation datasets (medrag data iu-xray) and the PubMed Central builder.
+data = ["huggingface_hub>=0.23", "pyarrow>=15"]
 
 [project.scripts]
 medrag = "medrag.cli:main"
@@ -53,3 +58,6 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_knowledge.py" = ["E501"]  # inline JATS XML fixture

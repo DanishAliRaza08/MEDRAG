@@ -25,8 +25,12 @@ report off, and that rule is enforced in code beneath the API.
 | Secured REST API with role-based access control (clinician / admin / viewer) | `medrag/api/` |
 | Clinical workspace web app (patients, studies, image viewer, assistant chat, draft report, sign-off, KB search, audit) | `medrag/web/` |
 | Evaluation: Recall@K, MRR, latency mean/P95, ungrounded-claim (hallucination) rate, report similarity, ablations (no-retrieval, single-pass, text-only), release gates | `medrag/eval/` |
+| **Real evidence**: 31 curated CC BY PubMed Central reviews and guidelines (with attribution), plus a PDF/TXT importer for licensed NICE/WHO/local guidelines | `data/knowledge_base_pmc/`, `medrag/kb/` |
+| **Real images**: Indiana University chest X-rays with radiologist reports, a CheXpert-style labeller with negation, and clinical-efficacy scoring (precision/recall/F1 per finding) | `medrag/datasets.py`, `medrag/eval/runner.py` |
+| **NLI verifier** (entailment/contradiction) for real mode; DICOM rendering and PS3.15 header de-identification | `agent/verifier.py`, `deid/dicom.py` |
+| **Real mode without a GPU**: built-in OpenAI-compatible server for Qwen2.5-VL | `medrag/llm_server.py` |
 | Offline mode (deterministic stand-ins, no GPU) and real mode (GPU-served models) | `medrag/config.py` |
-| 117 automated tests, ruff-clean, GitHub Actions CI | `tests/`, `.github/workflows/ci.yml` |
+| Automated tests, ruff-clean, GitHub Actions CI | `tests/`, `.github/workflows/ci.yml` |
 
 ## Quick start (offline mode — any laptop, no GPU)
 
@@ -54,7 +58,7 @@ Open <http://localhost:8000> and sign in as `clinician / clinician123`. Then:
 Other commands:
 
 ```bash
-make test        # 117 tests
+make test
 ```
 
 ```bash
@@ -70,6 +74,45 @@ make samples     # write the synthetic sample images to data/samples/
 ```
 
 Without `make`: `python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]" && medrag serve`.
+
+## Real mode on any machine (CPU, no GPU)
+
+Install the model extras once, then start the model server and the app in two terminals:
+
+```bash
+pip install -e ".[real,llm,data]"
+```
+
+```bash
+medrag llm-server --model Qwen/Qwen2.5-VL-3B-Instruct --port 8001
+```
+
+```bash
+MEDRAG_MODE=real MEDRAG_LLM_URL=http://localhost:8001/v1 MEDRAG_LLM_MODEL=Qwen/Qwen2.5-VL-3B-Instruct medrag serve
+```
+
+The first start downloads the models (about 13 GB) and embeds the knowledge base. On a 4-core CPU, a study takes a
+few minutes. Use GPU mode (below) for thesis-scale experiments.
+
+## Real data and evaluation
+
+```bash
+medrag kb fetch-pmc            # (re)download the curated CC BY PubMed Central corpus
+```
+
+```bash
+medrag kb import nice_ng138.pdf --title "NICE NG138 Pneumonia" --source "NICE, licensed" --modality xray
+```
+
+```bash
+medrag data iu-xray --n 150    # real chest X-rays + radiologist reports into var/datasets/iu_xray
+```
+
+```bash
+MEDRAG_MODE=real MEDRAG_LLM_URL=http://localhost:8001/v1 medrag eval --real-xray var/datasets/iu_xray --n 20
+```
+
+The evaluation also writes `eval_results/clinician_review_sheet.csv` for clinicians to rate the drafts.
 
 ## Real mode (GPU)
 
@@ -107,8 +150,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/EVALUATION.md](docs/EVAL
 ## Important notes
 
 * **Not a medical device.** For research and education only. No real patient data is included.
-* The knowledge base in `data/knowledge_base/` is a small set of **educational summaries written for development**.
-  Replace them with licensed sources (NICE, WHO, PubMed Central Open Access) before any serious evaluation.
+* `data/knowledge_base/` holds short **educational summaries written for development**. `data/knowledge_base_pmc/`
+  holds real open-access review articles (CC BY, see its ATTRIBUTION.md). Add licensed NICE/WHO guidelines with
+  `medrag kb import` or the admin screen.
+* The IU X-ray images are downloaded on demand for evaluation and are never committed (research use only).
 * Images produced by `medrag samples` and the workspace’s sample picker are **synthetic cartoons**. The offline
   “VLM” is a deterministic heuristic tuned to them. It exists so that the full control flow can be exercised and
   tested without a GPU. It is not a diagnostic model.

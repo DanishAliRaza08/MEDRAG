@@ -103,7 +103,9 @@ def parse_markdown(text: str, fallback_id: str) -> Document:
     # Drop markdown heading markers / bullets but keep the words.
     body_lines = []
     for line in text.splitlines():
-        line = re.sub(r"^\s*(#+|[-*]|\d+\.)\s*", "", line).strip()
+        if line.lstrip().startswith("#"):
+            continue  # headings are structure, not statements: never index them as sentences
+        line = re.sub(r"^\s*([-*]|\d+\.)\s+", "", line).strip()
         if line:
             if not line.endswith((".", "!", "?", ":")):
                 line += "."
@@ -118,6 +120,8 @@ def parse_markdown(text: str, fallback_id: str) -> Document:
 def load_directory(path: Path) -> list[Document]:
     docs = []
     for p in sorted(Path(path).glob("*.md")):
+        if p.stem.isupper():  # README.md, ATTRIBUTION.md, ... are not evidence
+            continue
         docs.append(parse_markdown(p.read_text(encoding="utf-8"), p.stem))
     return docs
 
