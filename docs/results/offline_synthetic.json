@@ -1,0 +1,149 @@
+{
+  "mode": "offline",
+  "retrieval": {
+    "sample": {
+      "dense": {
+        "recall@1": 0.9038,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9744,
+        "latency_mean_ms": 0.07,
+        "latency_p95_ms": 0.098,
+        "queries": 26
+      },
+      "sparse": {
+        "recall@1": 0.9423,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 0.015,
+        "latency_p95_ms": 0.026,
+        "queries": 26
+      },
+      "hybrid": {
+        "recall@1": 0.9038,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9808,
+        "latency_mean_ms": 0.087,
+        "latency_p95_ms": 0.113,
+        "queries": 26
+      },
+      "hybrid+rerank": {
+        "recall@1": 0.9423,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 0.926,
+        "latency_p95_ms": 1.0,
+        "queries": 26
+      }
+    },
+    "pmc": {
+      "dense": {
+        "recall@1": 0.6559,
+        "recall@3": 0.9462,
+        "recall@5": 0.9892,
+        "mrr": 0.8145,
+        "latency_mean_ms": 0.111,
+        "latency_p95_ms": 0.186,
+        "queries": 31
+      },
+      "sparse": {
+        "recall@1": 0.9462,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9839,
+        "latency_mean_ms": 0.458,
+        "latency_p95_ms": 0.715,
+        "queries": 31
+      },
+      "hybrid": {
+        "recall@1": 0.9462,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9839,
+        "latency_mean_ms": 0.649,
+        "latency_p95_ms": 0.814,
+        "queries": 31
+      },
+      "hybrid+rerank": {
+        "recall@1": 0.8817,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9516,
+        "latency_mean_ms": 5.678,
+        "latency_p95_ms": 6.312,
+        "queries": 31
+      }
+    }
+  },
+  "clinical": {
+    "full": {
+      "hallucination_rate": 0.0,
+      "report_similarity": 0.5314,
+      "finding_accuracy": 1.0,
+      "verified_rate": 1.0,
+      "mean_iterations": 1.071,
+      "latency_mean_ms": 43.09,
+      "latency_p95_ms": 80.93,
+      "cases": 14
+    },
+    "single_pass": {
+      "hallucination_rate": 0.0714,
+      "report_similarity": 0.5219,
+      "finding_accuracy": 1.0,
+      "verified_rate": 0.9286,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 43.16,
+      "latency_p95_ms": 83.17,
+      "cases": 14
+    },
+    "text_only": {
+      "hallucination_rate": 0.0,
+      "report_similarity": 0.1561,
+      "finding_accuracy": 0.5714,
+      "verified_rate": 1.0,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 30.14,
+      "latency_p95_ms": 57.4,
+      "cases": 14
+    },
+    "no_retrieval": {
+      "hallucination_rate": 0.9048,
+      "report_similarity": 0.299,
+      "finding_accuracy": 0.8571,
+      "verified_rate": 0.0,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 27.1,
+      "latency_p95_ms": 63.51,
+      "cases": 14
+    }
+  },
+  "corpus": {
+    "documents": 46,
+    "chunks": 340,
+    "titles": null,
+    "embedder": "HashingEmbedder",
+    "reranker": "LexicalReranker"
+  },
+  "models": {
+    "embedder": "hashing (offline)",
+    "reranker": "lexical (offline)",
+    "vlm": "offline-heuristic-vlm",
+    "generator": "offline-extractive",
+    "verifier": "Verifier"
+  },
+  "gates": {
+    "retrieval_recall_at_5 (pmc set)": {
+      "value": 1.0,
+      "threshold": 0.8,
+      "pass": true
+    },
+    "full_hallucination_rate": {
+      "value": 0.0,
+      "threshold": 0.1,
+      "pass": true
+    }
+  }
+}

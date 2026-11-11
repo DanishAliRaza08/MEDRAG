@@ -19,7 +19,7 @@
 | 6 | Ingestion and system build | **Done**: complete system, CI, offline + real mode |
 | 6b | Real-mode bring-up: Qwen2.5-VL, BGE-M3, bge-reranker-v2-m3, BiomedCLIP, NLI verifier | **Done and validated on CPU** (built-in `medrag llm-server`); vLLM/GPU path ready in docker-compose |
 | 6c | Real knowledge base and real images | **Done**: 31 curated CC BY PubMed Central reviews/guidelines; PDF/TXT importer for licensed NICE/WHO/local guidelines; 150 real IU X-ray studies with radiologist reports |
-| 7 | Gold sets, experiments on all ablations, expert review of a sample of drafts | Gold sets built (sample, PMC, IU X-ray labels); real-mode pilot run done; clinician review sheet generated; **full-scale GPU run + clinician ratings: next** |
+| 7 | Gold sets, experiments on all ablations, expert review of a sample of drafts | Gold sets built (sample, PMC, IU X-ray labels); **real-mode pilot done** (docs/results); clinician review sheet generated; **full-scale GPU run + clinician ratings: next** |
 | 8–11 | Thesis presentation, write-up, editing, submission | Write-up in parallel |
 
 ## What only the student / supervisor can do

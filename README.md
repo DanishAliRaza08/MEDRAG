@@ -144,6 +144,17 @@ the same code base still imports and tests on a CPU-only machine.
    Report lifecycle: draft → verified | needs_review ──(human clinician only)──► signed_off | rejected
 ```
 
+## Results so far
+
+* Offline harness, retrieval on two gold sets, synthetic-image ablations and the real-mode pilot on real chest X-rays
+  are in [docs/results/](docs/results/README.md).
+* **Real-mode pilot** (Qwen2.5-VL-3B on CPU, 12 IU X-ray studies): ungrounded-claim rate **0.28** for the full system
+  vs **0.38** single-pass vs **1.00** without retrieval, so grounding and self-verification work as designed. Finding F1
+  is low (0.11) because the small CPU vision model over-calls findings; the release gate correctly blocks this
+  configuration. The thesis run should use the 7B model on GPU.
+* Slides: [docs/MedRAG_Process.pptx](docs/MedRAG_Process.pptx). Full file-by-file documentation:
+  [docs/MedRAG_Project_Documentation.pdf](docs/MedRAG_Project_Documentation.pdf).
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/EVALUATION.md](docs/EVALUATION.md) and
 [docs/PLAN.md](docs/PLAN.md) (research questions and objectives mapped to code and remaining work).
 

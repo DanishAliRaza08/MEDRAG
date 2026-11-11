@@ -1,0 +1,162 @@
+{
+  "mode": "real",
+  "retrieval": {
+    "sample": {
+      "dense": {
+        "recall@1": 0.9038,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9808,
+        "latency_mean_ms": 104.31,
+        "latency_p95_ms": 132.327,
+        "queries": 26
+      },
+      "sparse": {
+        "recall@1": 0.9423,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 0.023,
+        "latency_p95_ms": 0.047,
+        "queries": 26
+      },
+      "hybrid": {
+        "recall@1": 0.9423,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 98.476,
+        "latency_p95_ms": 116.444,
+        "queries": 26
+      },
+      "hybrid+rerank": {
+        "recall@1": 0.9423,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 4910.708,
+        "latency_p95_ms": 5066.05,
+        "queries": 26
+      }
+    },
+    "pmc": {
+      "dense": {
+        "recall@1": 0.9462,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9839,
+        "latency_mean_ms": 117.038,
+        "latency_p95_ms": 127.492,
+        "queries": 31
+      },
+      "sparse": {
+        "recall@1": 0.9462,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9839,
+        "latency_mean_ms": 0.439,
+        "latency_p95_ms": 0.691,
+        "queries": 31
+      },
+      "hybrid": {
+        "recall@1": 0.9785,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 121.325,
+        "latency_p95_ms": 136.918,
+        "queries": 31
+      },
+      "hybrid+rerank": {
+        "recall@1": 0.9462,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9839,
+        "latency_mean_ms": 7709.626,
+        "latency_p95_ms": 8124.215,
+        "queries": 31
+      }
+    }
+  },
+  "clinical": {},
+  "corpus": {
+    "documents": 46,
+    "chunks": 340,
+    "titles": null,
+    "embedder": "BGEM3Embedder",
+    "reranker": "CrossEncoderReranker"
+  },
+  "models": {
+    "embedder": "BAAI/bge-m3",
+    "reranker": "BAAI/bge-reranker-v2-m3",
+    "vlm": "qwen2.5-vl",
+    "generator": "llm",
+    "verifier": "NLIVerifier/v2"
+  },
+  "real_xray": {
+    "full": {
+      "precision": 0.0833,
+      "recall": 0.1429,
+      "f1": 0.1053,
+      "normal_abnormal_accuracy": 0.25,
+      "hallucination_rate": 0.2778,
+      "report_similarity": 0.9276,
+      "mean_iterations": 2.75,
+      "latency_mean_ms": 214707.9,
+      "latency_p95_ms": 252751.1,
+      "cases": 12,
+      "errors": 0
+    },
+    "single_pass": {
+      "precision": 0.0833,
+      "recall": 0.1429,
+      "f1": 0.1053,
+      "normal_abnormal_accuracy": 0.25,
+      "hallucination_rate": 0.375,
+      "report_similarity": 0.9224,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 82768.4,
+      "latency_p95_ms": 85081.0,
+      "cases": 12,
+      "errors": 0
+    },
+    "text_only": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "normal_abnormal_accuracy": 0.75,
+      "hallucination_rate": 0.0,
+      "report_similarity": 0.9342,
+      "mean_iterations": 2.0,
+      "latency_mean_ms": 83864.4,
+      "latency_p95_ms": 88652.9,
+      "cases": 12,
+      "errors": 0
+    },
+    "no_retrieval": {
+      "precision": 0.0833,
+      "recall": 0.1429,
+      "f1": 0.1053,
+      "normal_abnormal_accuracy": 0.25,
+      "hallucination_rate": 1.0,
+      "report_similarity": 0.9151,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 27815.5,
+      "latency_p95_ms": 29109.2,
+      "cases": 12,
+      "errors": 0
+    }
+  },
+  "gates": {
+    "retrieval_recall_at_5 (pmc set)": {
+      "value": 1.0,
+      "threshold": 0.8,
+      "pass": true
+    },
+    "full_hallucination_rate": {
+      "value": 0.2778,
+      "threshold": 0.1,
+      "pass": false
+    }
+  }
+}

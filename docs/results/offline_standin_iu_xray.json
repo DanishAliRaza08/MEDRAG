@@ -1,0 +1,158 @@
+{
+  "mode": "offline",
+  "retrieval": {
+    "sample": {
+      "dense": {
+        "recall@1": 0.9038,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9744,
+        "latency_mean_ms": 0.068,
+        "latency_p95_ms": 0.097,
+        "queries": 26
+      },
+      "sparse": {
+        "recall@1": 0.9423,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 0.017,
+        "latency_p95_ms": 0.034,
+        "queries": 26
+      },
+      "hybrid": {
+        "recall@1": 0.9038,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9808,
+        "latency_mean_ms": 0.095,
+        "latency_p95_ms": 0.13,
+        "queries": 26
+      },
+      "hybrid+rerank": {
+        "recall@1": 0.9423,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 1.0,
+        "latency_mean_ms": 1.256,
+        "latency_p95_ms": 1.493,
+        "queries": 26
+      }
+    },
+    "pmc": {
+      "dense": {
+        "recall@1": 0.6559,
+        "recall@3": 0.9462,
+        "recall@5": 0.9892,
+        "mrr": 0.8145,
+        "latency_mean_ms": 0.147,
+        "latency_p95_ms": 0.214,
+        "queries": 31
+      },
+      "sparse": {
+        "recall@1": 0.9462,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9839,
+        "latency_mean_ms": 0.534,
+        "latency_p95_ms": 0.754,
+        "queries": 31
+      },
+      "hybrid": {
+        "recall@1": 0.9462,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9839,
+        "latency_mean_ms": 0.536,
+        "latency_p95_ms": 0.661,
+        "queries": 31
+      },
+      "hybrid+rerank": {
+        "recall@1": 0.8817,
+        "recall@3": 1.0,
+        "recall@5": 1.0,
+        "mrr": 0.9516,
+        "latency_mean_ms": 5.675,
+        "latency_p95_ms": 6.222,
+        "queries": 31
+      }
+    }
+  },
+  "clinical": {},
+  "corpus": {
+    "documents": 46,
+    "chunks": 340,
+    "titles": null,
+    "embedder": "HashingEmbedder",
+    "reranker": "LexicalReranker"
+  },
+  "models": {
+    "embedder": "hashing (offline)",
+    "reranker": "lexical (offline)",
+    "vlm": "offline-heuristic-vlm",
+    "generator": "offline-extractive",
+    "verifier": "Verifier"
+  },
+  "real_xray": {
+    "full": {
+      "precision": 0.0625,
+      "recall": 0.1429,
+      "f1": 0.087,
+      "normal_abnormal_accuracy": 0.3333,
+      "hallucination_rate": 0.0,
+      "report_similarity": 0.0881,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 22.0,
+      "latency_p95_ms": 29.1,
+      "cases": 12
+    },
+    "single_pass": {
+      "precision": 0.0625,
+      "recall": 0.1429,
+      "f1": 0.087,
+      "normal_abnormal_accuracy": 0.3333,
+      "hallucination_rate": 0.0,
+      "report_similarity": 0.0881,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 22.6,
+      "latency_p95_ms": 29.3,
+      "cases": 12
+    },
+    "text_only": {
+      "precision": 0.1667,
+      "recall": 0.2857,
+      "f1": 0.2105,
+      "normal_abnormal_accuracy": 0.25,
+      "hallucination_rate": 0.0,
+      "report_similarity": 0.0342,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 10.2,
+      "latency_p95_ms": 13.6,
+      "cases": 12
+    },
+    "no_retrieval": {
+      "precision": 0.0625,
+      "recall": 0.1429,
+      "f1": 0.087,
+      "normal_abnormal_accuracy": 0.3333,
+      "hallucination_rate": 1.0,
+      "report_similarity": 0.0774,
+      "mean_iterations": 1.0,
+      "latency_mean_ms": 5.6,
+      "latency_p95_ms": 6.4,
+      "cases": 12
+    }
+  },
+  "gates": {
+    "retrieval_recall_at_5 (pmc set)": {
+      "value": 1.0,
+      "threshold": 0.8,
+      "pass": true
+    },
+    "full_hallucination_rate": {
+      "value": 0.0,
+      "threshold": 0.1,
+      "pass": true
+    }
+  }
+}
